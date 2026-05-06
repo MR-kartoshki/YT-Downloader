@@ -1,0 +1,36 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Build output
+output/
+dist/
+build/
+*.spec
+
+# Local tools bundled binaries
+tools/
+output/tools/
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Claude / AI workspace
+.claude/
+
+# Git temp files
+*.swp
