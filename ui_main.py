@@ -160,9 +160,10 @@ class MainWindow(QMainWindow):
         row.setSpacing(8)
 
         # Audio codec selector (shown only for audio format)
-        codec_label = QLabel("Audio Codec")
-        codec_label.setFixedWidth(80)
-        codec_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        self._codec_label = QLabel("Audio Codec")
+        self._codec_label.setFixedWidth(80)
+        self._codec_label.setStyleSheet("color: #aaa; font-size: 12px;")
+        self._codec_label.setVisible(False)
 
         self._codec_combo = QComboBox()
         self._codec_combo.addItem("MP3", "mp3")
@@ -177,7 +178,7 @@ class MainWindow(QMainWindow):
         self._subtitle_check = QCheckBox("Download Subtitles")
         self._subtitle_check.setStyleSheet("color: #aaa; font-size: 12px;")
 
-        row.addWidget(codec_label)
+        row.addWidget(self._codec_label)
         row.addWidget(self._codec_combo)
         row.addWidget(self._subtitle_check)
         row.addStretch()
@@ -407,6 +408,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_format_changed(self):
         is_audio = self._format_combo.currentData() == "audio"
+        self._codec_label.setVisible(is_audio)
         self._codec_combo.setVisible(is_audio)
 
     @Slot()
