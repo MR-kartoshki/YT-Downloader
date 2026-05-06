@@ -93,13 +93,18 @@ def main():
     print("\nBuilding executable...")
     print("(This will take 2-5 minutes on first build)\n")
 
+    # macOS requires --onedir for a proper .app bundle; --onefile + --windowed
+    # is deprecated in PyInstaller 6 and will error in v7.
+    bundle_mode = "--onedir" if sys.platform == "darwin" else "--onefile"
+
     cmd = [
         sys.executable,
         "-m",
         "PyInstaller",
         "main.py",
-        "--onefile",
+        bundle_mode,
         "--windowed",
+        "-y",                  # overwrite existing dist/ output without prompting
         "--name", "ytdownloader",
         "--add-data", "image.ico:.",
         "--collect-all", "requests",
