@@ -177,8 +177,9 @@ class MainWindow(QMainWindow):
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setObjectName("log_panel")
-        font = QFont("Consolas", 10)
+        font = QFont()
         font.setStyleHint(QFont.Monospace)
+        font.setPointSize(10)
         self._log.setFont(font)
         return self._log
 

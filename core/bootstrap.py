@@ -1,4 +1,5 @@
 import shutil
+import sys
 import zipfile
 from pathlib import Path
 
@@ -68,7 +69,8 @@ class BootstrapWorker(QThread):
                     self.log_message.emit("ffmpeg already present.")
                 else:
                     # Existing file is corrupt — re-download
-                    self.log_message.emit("ffmpeg.exe is corrupt, re-downloading...")
+                    ffmpeg_name = get_ffmpeg_path().name
+                    self.log_message.emit(f"{ffmpeg_name} is corrupt, re-downloading...")
                     get_ffmpeg_path().unlink(missing_ok=True)
                     ok = self._fetch_tool("ffmpeg", config.FFMPEG_URL, tools_dir)
                     if ok and self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg"):
@@ -105,7 +107,8 @@ class BootstrapWorker(QThread):
                     self.tool_status_changed.emit("deno", "Ready")
                     self.log_message.emit("deno already present.")
                 else:
-                    self.log_message.emit("deno.exe is corrupt, re-downloading...")
+                    deno_name = get_deno_path().name
+                    self.log_message.emit(f"{deno_name} is corrupt, re-downloading...")
                     get_deno_path().unlink(missing_ok=True)
                     ok = self._fetch_tool("deno", config.DENO_URL, tools_dir)
                     if ok and self._validate_binary(get_deno_path(), _MIN_DENO_SIZE, "deno"):
@@ -194,30 +197,54 @@ class BootstrapWorker(QThread):
 
     def _extract_ffmpeg(self, zip_path: Path, dest_dir: Path) -> bool:
         """
-        Fix 2: extract both ffmpeg.exe AND ffprobe.exe — both are required.
-        Does not assume any fixed folder structure in the zip.
+        Extract ffmpeg and ffprobe binaries from zip.
+        Handles both Windows (.exe) and Unix (no extension) formats.
         """
         try:
             with zipfile.ZipFile(zip_path) as zf:
                 names = zf.namelist()
-                for target_name in ("ffmpeg.exe", "ffprobe.exe"):
-                    lower = target_name.lower()
+
+                # Platform-specific binary names
+                is_windows = sys.platform == "win32"
+                target_binaries = [
+                    ("ffmpeg.exe" if is_windows else "ffmpeg", "ffmpeg"),
+                    ("ffprobe.exe" if is_windows else "ffprobe", "ffprobe"),
+                ]
+
+                for target_name, base_name in target_binaries:
+                    match = None
+
+                    # Priority 1: exact case-insensitive match
                     match = next(
-                        (n for n in names if n.lower().endswith(f"/{lower}")),
+                        (n for n in names if n.lower() == target_name.lower()),
                         None,
                     )
+
+                    # Priority 2: ends with /binary or \binary (nested in folder)
                     if match is None:
                         match = next(
-                            (n for n in names if n.lower() == lower),
+                            (n for n in names if n.lower().endswith(f"/{target_name.lower()}") or
+                             n.lower().endswith(f"\\{target_name.lower()}")),
                             None,
                         )
+
+                    # Priority 3: contains base_name and is executable (heuristic for Unix)
+                    if match is None:
+                        match = next(
+                            (n for n in names if base_name.lower() in n.lower() and
+                             not n.lower().endswith(".txt") and not n.lower().endswith(".md")),
+                            None,
+                        )
+
                     if match:
                         dest = dest_dir / target_name
                         with zf.open(match) as src, open(dest, "wb") as dst:
                             dst.write(src.read())
+                        # Make executable on Unix
+                        if not is_windows:
+                            dest.chmod(0o755)
                         self.log_message.emit(f"Extracted {target_name}.")
                     else:
-                        # Both binaries are required
                         self.log_message.emit(
                             f"Could not find {target_name} in zip — extraction failed."
                         )
@@ -228,49 +255,58 @@ class BootstrapWorker(QThread):
             return False
 
     def _extract_deno(self, zip_path: Path, dest_dir: Path) -> bool:
-        """Extract deno.exe from zip. Tries multiple patterns."""
+        """Extract deno binary from zip. Handles Windows (.exe) and Unix formats."""
         try:
             with zipfile.ZipFile(zip_path) as zf:
                 names = zf.namelist()
 
-                # Debug: log what's in the zip
-                exe_files = [n for n in names if n.lower().endswith(".exe")]
-                if exe_files:
-                    self.log_message.emit(f"Found .exe files in zip: {exe_files[:3]}")
+                is_windows = sys.platform == "win32"
+                target_name = "deno.exe" if is_windows else "deno"
 
-                # Priority 1: exact match for deno.exe
+                # Priority 1: exact case-insensitive match
                 match = next(
-                    (n for n in names if n.lower() == "deno.exe"),
+                    (n for n in names if n.lower() == target_name.lower()),
                     None,
                 )
 
-                # Priority 2: any file named deno.exe (case-insensitive)
+                # Priority 2: ends with /binary or \binary (nested in folder)
                 if match is None:
                     match = next(
-                        (n for n in names if n.lower().endswith("/deno.exe") or
-                         n.lower().endswith("\\deno.exe")),
+                        (n for n in names if n.lower().endswith(f"/{target_name.lower()}") or
+                         n.lower().endswith(f"\\{target_name.lower()}")),
                         None,
                     )
 
-                # Priority 3: any .exe containing "deno"
+                # Priority 3: contains "deno" and looks executable
                 if match is None:
-                    match = next(
-                        (n for n in names if "deno" in n.lower() and n.lower().endswith(".exe")),
-                        None,
-                    )
+                    # On Windows, look for .exe; on Unix, look for anything with deno
+                    if is_windows:
+                        match = next(
+                            (n for n in names if "deno" in n.lower() and n.lower().endswith(".exe")),
+                            None,
+                        )
+                    else:
+                        match = next(
+                            (n for n in names if "deno" in n.lower() and
+                             not n.lower().endswith(".txt") and not n.lower().endswith(".md")),
+                            None,
+                        )
 
-                # Priority 4: any .exe (fallback)
-                if match is None:
+                # Priority 4: Windows-only fallback to any .exe
+                if match is None and is_windows:
                     match = next((n for n in names if n.lower().endswith(".exe")), None)
 
                 if match is None:
-                    self.log_message.emit(f"Could not find deno.exe in zip. Contents: {names[:10]}")
+                    self.log_message.emit(f"Could not find deno binary in zip. Contents: {names[:10]}")
                     return False
 
-                dest = dest_dir / "deno.exe"
+                dest = dest_dir / target_name
                 with zf.open(match) as src, open(dest, "wb") as dst:
                     dst.write(src.read())
-                self.log_message.emit(f"Extracted deno.exe from {match}.")
+                # Make executable on Unix
+                if not is_windows:
+                    dest.chmod(0o755)
+                self.log_message.emit(f"Extracted {target_name} from {match}.")
             return True
         except Exception as e:
             self.log_message.emit(f"deno extraction error: {e}")

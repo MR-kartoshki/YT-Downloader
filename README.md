@@ -1,6 +1,6 @@
 # YT Downloader
 
-A simple, self-contained Windows desktop app to download videos from YouTube and other sites.
+A simple, self-contained desktop app to download videos from YouTube and other sites. Works on Windows, macOS, and Linux.
 
 ## Features
 
@@ -74,9 +74,9 @@ If you get an error on first run, make sure:
 - Internet connection is active (for tool download)
 - You have permission to write to the app folder
 
-## Building an .exe (for sharing)
+## Building a Standalone Executable (for sharing)
 
-Want to create a standalone single `.exe` file to share or distribute?
+Want to create a standalone single executable file to share or distribute?
 
 ### Quick Build (Recommended)
 
@@ -85,14 +85,26 @@ Want to create a standalone single `.exe` file to share or distribute?
 2. Wait 3-7 minutes (first build is slower for single-file mode)
 3. Done! Your `.exe` is in `dist/` folder
 
-**Any OS (Python):**
-1. Open Command Prompt/PowerShell in the app folder
+**macOS/Linux or Any OS (Python):**
+1. Open Terminal in the app folder
 2. Run:
    ```
    python build.py
    ```
 3. Wait 3-7 minutes
-4. Done! Your `.exe` is in `dist/` folder
+4. Done! Your executable is in `dist/` folder
+
+**macOS (alternative):**
+```bash
+python build.py
+# Creates a standalone app bundle in dist/ytdownloader
+```
+
+**Linux (alternative):**
+```bash
+python build.py
+# Creates a standalone binary in dist/ytdownloader
+```
 
 ### Manual Build (if scripts don't work)
 
@@ -132,13 +144,23 @@ Click the **"Output…"** button to pick where downloads are saved. Default is `
 
 ### Remove Downloaded Tools
 
-Tools are stored at system root:
+Tools are stored in platform-specific locations:
 - **Windows**: `C:\tools` (or your system drive, e.g., `D:\tools`)
-- **macOS/Linux**: `/tools`
+- **macOS**: `~/.yt-downloader/tools` (in your home directory)
+- **Linux**: `~/.yt-downloader/tools` (in your home directory)
 
 To reset:
-- Delete the `tools/` folder from your system root
+- Delete the `tools/` folder
 - On next run, the app re-downloads everything
+
+**Examples:**
+```bash
+# macOS/Linux
+rm -rf ~/.yt-downloader/tools
+
+# Windows (PowerShell)
+Remove-Item -Recurse -Force "C:\tools"
+```
 
 ## Privacy
 

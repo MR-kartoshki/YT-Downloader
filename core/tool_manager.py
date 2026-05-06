@@ -22,11 +22,11 @@ def get_app_base_dir() -> Path:
 
 def get_tools_dir() -> Path:
     """
-    Returns absolute path to system-root tools directory.
+    Returns absolute path to tools directory.
     Works cross-platform (Windows, macOS, Linux).
 
     - Windows: C:\tools (or D:\tools if on different drive)
-    - macOS/Linux: /tools
+    - macOS/Linux: ~/.yt-downloader/tools (user home directory)
 
     Creates the folder if it doesn't exist.
     """
@@ -35,23 +35,30 @@ def get_tools_dir() -> Path:
         system_drive = Path(os.environ.get("SystemDrive", "C:"))
         tools_dir = system_drive / "tools"
     else:
-        # macOS/Linux: use system root
-        tools_dir = Path("/tools")
+        # macOS/Linux: use user home directory (writable by regular users)
+        home = Path.home()
+        tools_dir = home / ".yt-downloader" / "tools"
 
     tools_dir.mkdir(parents=True, exist_ok=True)
     return tools_dir
 
 
 def get_ffmpeg_path() -> Path:
-    return get_tools_dir() / "ffmpeg.exe"
+    # Windows: ffmpeg.exe, Linux/macOS: ffmpeg
+    exe_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+    return get_tools_dir() / exe_name
 
 
 def get_ffprobe_path() -> Path:
-    return get_tools_dir() / "ffprobe.exe"
+    # Windows: ffprobe.exe, Linux/macOS: ffprobe
+    exe_name = "ffprobe.exe" if sys.platform == "win32" else "ffprobe"
+    return get_tools_dir() / exe_name
 
 
 def get_deno_path() -> Path:
-    return get_tools_dir() / "deno.exe"
+    # Windows: deno.exe, Linux/macOS: deno
+    exe_name = "deno.exe" if sys.platform == "win32" else "deno"
+    return get_tools_dir() / exe_name
 
 
 def is_ffmpeg_available() -> bool:

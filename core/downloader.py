@@ -28,7 +28,8 @@ class DownloadWorker(QThread):
         # Add tools dir to PATH so yt-dlp can find deno and ffmpeg
         tools_dir = str(get_tools_dir())
         old_path = os.environ.get("PATH", "")
-        os.environ["PATH"] = f"{tools_dir};{old_path}"
+        path_sep = ";" if os.name == "nt" else ":"
+        os.environ["PATH"] = f"{tools_dir}{path_sep}{old_path}"
 
         # Fix 7: download_complete is always emitted, regardless of how run() exits.
         try:
