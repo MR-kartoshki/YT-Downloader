@@ -6,9 +6,8 @@ A simple, self-contained desktop app to download videos from YouTube and other s
 
 - **Download videos** in MP4 format (best quality)
 - **Extract audio** as MP3 from any video
-- **Dark theme** GUI that's easy on the eyes
 - **Automatic setup** — downloads ffmpeg on first run
-- **No dependencies** — everything bundled, nothing to install
+- **No dependencies** — everything bundled, nothing to install (When running as an .exe)
 - **Progress tracking** — real-time download speed and status
 
 ## Quick Start
