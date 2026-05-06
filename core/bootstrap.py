@@ -131,6 +131,8 @@ class BootstrapWorker(QThread):
 
     def _fetch_tool(self, tool_name: str, url: str, tools_dir: Path) -> bool:
         """Download zip, validate it, extract binary. Returns True on success."""
+        # Create tools directory only when actually downloading
+        tools_dir.mkdir(parents=True, exist_ok=True)
         zip_path = tools_dir / f"{tool_name}_download.zip"
         self.tool_status_changed.emit(tool_name, "Downloading...")
 

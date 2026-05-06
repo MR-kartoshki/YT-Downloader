@@ -13,11 +13,14 @@ class DownloadWorker(QThread):
     status_update = Signal(str)           # log lines
     download_complete = Signal(bool, str) # (success, message)
 
-    def __init__(self, url: str, output_dir: str, format_mode: str, state, parent=None):
+    def __init__(self, url: str, output_dir: str, format_mode: str, audio_codec: str,
+                 download_subtitles: bool, state, parent=None):
         super().__init__(parent)
         self._url = url
         self._output_dir = Path(output_dir)
         self._format_mode = format_mode  # 'video' or 'audio'
+        self._audio_codec = audio_codec  # 'mp3', 'm4a', 'wav', 'flac', 'vorbis'
+        self._download_subtitles = download_subtitles
         self._state = state
         self._stop = False
 
@@ -54,26 +57,38 @@ class DownloadWorker(QThread):
 
     def _build_ydl_opts(self) -> dict:
         ffmpeg_dir = str(self._state.ffmpeg_path.parent) if self._state.ffmpeg_path else ""
+        postprocessors = []
 
         if self._format_mode == "audio":
             fmt = "bestaudio/best"
-            postprocessors = [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ]
+            # Map codec selection to yt-dlp codec and quality settings
+            codec_map = {
+                "mp3": ("mp3", "192"),
+                "m4a": ("aac", "192"),
+                "wav": ("wav", "192"),
+                "flac": ("flac", "192"),
+                "vorbis": ("vorbis", "192"),
+            }
+            codec, quality = codec_map.get(self._audio_codec, ("mp3", "192"))
+            postprocessors.append({
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": codec,
+                "preferredquality": quality,
+            })
         else:
             # Avoid OPUS audio (not compatible with MP4) — prefer m4a or AAC
             fmt = "bestvideo[ext=mp4]+bestaudio[ext!=webm]/bestvideo+bestaudio/best"
-            # Re-encode audio to AAC if merge contains uncommon codecs
-            postprocessors = [
-                {
-                    "key": "FFmpegVideoConvertor",
-                    "preferedformat": "mp4",
-                }
-            ]
+            postprocessors.append({
+                "key": "FFmpegVideoConvertor",
+                "preferedformat": "mp4",
+            })
+
+        # Add subtitle download if requested
+        if self._download_subtitles:
+            postprocessors.append({
+                "key": "FFmpegSubtitlesConvertor",
+                "format": "srt",
+            })
 
         return {
             "format": fmt,
@@ -85,7 +100,9 @@ class DownloadWorker(QThread):
             "no_warnings": False,
             "logger": self._YtdlpLogger(self.status_update),
             "merge_output_format": "mp4",
-            "restrictfilenames": True,   # Fix 4: strip Windows-illegal chars from filenames
+            "restrictfilenames": True,
+            "writesubtitles": self._download_subtitles,
+            "skip_unavailable_fragments": True,
         }
 
     def _progress_hook(self, d: dict) -> None:

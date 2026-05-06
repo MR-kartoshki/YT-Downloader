@@ -28,7 +28,7 @@ def get_tools_dir() -> Path:
     - Windows: C:\tools (or D:\tools if on different drive)
     - macOS/Linux: ~/.yt-downloader/tools (user home directory)
 
-    Creates the folder if it doesn't exist.
+    Does NOT create the folder — only returns the path.
     """
     if sys.platform == "win32":
         # Windows: use system drive (C:\ or D:\, etc.)
@@ -39,7 +39,6 @@ def get_tools_dir() -> Path:
         home = Path.home()
         tools_dir = home / ".yt-downloader" / "tools"
 
-    tools_dir.mkdir(parents=True, exist_ok=True)
     return tools_dir
 
 

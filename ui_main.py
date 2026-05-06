@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -37,7 +38,7 @@ class MainWindow(QMainWindow):
         self._apply_dark_theme()
         self._build_ui()
         self.setWindowTitle("YT Downloader")
-        self.setMinimumSize(700, 580)
+        self.setMinimumSize(750, 620)
 
         # Set window icon
         icon_path = get_app_base_dir() / "image.ico"
@@ -58,6 +59,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_tool_panel())
         layout.addLayout(self._build_url_row())
         layout.addLayout(self._build_format_row())
+        layout.addLayout(self._build_options_row())
         layout.addWidget(self._build_progress_section())
         layout.addWidget(self._build_log_panel(), stretch=1)
 
@@ -130,8 +132,9 @@ class MainWindow(QMainWindow):
 
         self._format_combo = QComboBox()
         self._format_combo.addItem("Video (MP4)", "video")
-        self._format_combo.addItem("Audio (MP3)", "audio")
-        self._format_combo.setFixedWidth(160)
+        self._format_combo.addItem("Audio", "audio")
+        self._format_combo.setFixedWidth(140)
+        self._format_combo.currentIndexChanged.connect(self._on_format_changed)
 
         self._download_btn = QPushButton("Download")
         self._download_btn.setEnabled(False)
@@ -148,6 +151,35 @@ class MainWindow(QMainWindow):
         row.addWidget(self._format_combo)
         row.addWidget(self._download_btn)
         row.addWidget(self._cancel_btn)
+        row.addStretch()
+
+        return row
+
+    def _build_options_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        # Audio codec selector (shown only for audio format)
+        codec_label = QLabel("Audio Codec")
+        codec_label.setFixedWidth(80)
+        codec_label.setStyleSheet("color: #aaa; font-size: 12px;")
+
+        self._codec_combo = QComboBox()
+        self._codec_combo.addItem("MP3", "mp3")
+        self._codec_combo.addItem("M4A (AAC)", "m4a")
+        self._codec_combo.addItem("WAV (Lossless)", "wav")
+        self._codec_combo.addItem("FLAC (Lossless)", "flac")
+        self._codec_combo.addItem("OGG (Vorbis)", "vorbis")
+        self._codec_combo.setFixedWidth(160)
+        self._codec_combo.setVisible(False)
+
+        # Subtitle checkbox
+        self._subtitle_check = QCheckBox("Download Subtitles")
+        self._subtitle_check.setStyleSheet("color: #aaa; font-size: 12px;")
+
+        row.addWidget(codec_label)
+        row.addWidget(self._codec_combo)
+        row.addWidget(self._subtitle_check)
         row.addStretch()
 
         return row
@@ -373,6 +405,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
 
     @Slot()
+    def _on_format_changed(self):
+        is_audio = self._format_combo.currentData() == "audio"
+        self._codec_combo.setVisible(is_audio)
+
+    @Slot()
     def _on_download_clicked(self):
         url = self._url_input.text().strip()
         if not url:
@@ -448,6 +485,8 @@ class MainWindow(QMainWindow):
             url=url,
             output_dir=self._output_dir,
             format_mode=self._format_combo.currentData(),
+            audio_codec=self._codec_combo.currentData(),
+            download_subtitles=self._subtitle_check.isChecked(),
             state=self._state,
         )
         self._download_worker.progress_update.connect(self._on_progress_update)

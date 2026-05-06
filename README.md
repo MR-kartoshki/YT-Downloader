@@ -33,10 +33,17 @@ A simple, self-contained desktop app to download videos from YouTube and other s
 ## How to Use
 
 1. **Paste a URL** — copy any YouTube link into the "URL" field
-2. **Choose format** — select "Video (MP4)" or "Audio (MP3)"
-3. **Pick output folder** — click "Output…" to choose where files are saved (defaults to Downloads)
-4. **Click Download** — watch the progress bar and status log
-5. **Find your file** — it's saved to the output folder with the video title as the filename
+2. **Choose format** — select "Video (MP4)" or "Audio"
+3. **Audio codec** (if Audio selected) — choose your preferred audio format:
+   - **MP3** — standard, widely compatible (default)
+   - **M4A (AAC)** — better quality than MP3, smaller file size
+   - **WAV** — lossless, highest quality, larger files
+   - **FLAC** — lossless with compression, excellent for archiving
+   - **OGG (Vorbis)** — open-source alternative, good quality
+4. **Subtitles** — check to automatically download available subtitles (auto-generated or manual)
+5. **Pick output folder** — click "Output…" to choose where files are saved (defaults to Downloads)
+6. **Click Download** — watch the progress bar and status log
+7. **Find your file** — it's saved to the output folder with the video title as the filename
 
 ### First Run
 
@@ -46,6 +53,18 @@ The app checks for required tools (ffmpeg and deno) on startup:
 - **Red dot** = Tool download failed
 
 If everything is green, you're good to download.
+
+### Audio Formats
+
+When downloading audio, choose the format that fits your needs:
+
+| Format | Quality | File Size | Best For |
+|--------|---------|-----------|----------|
+| **MP3** | Good | Medium | General use, maximum compatibility |
+| **M4A** | Very Good | Medium | iPhones, iTunes, better quality than MP3 |
+| **WAV** | Lossless | Large | Editing, archiving, professional use |
+| **FLAC** | Lossless | Medium | Archiving with compression, audiophiles |
+| **OGG** | Good | Small | Open-source projects, Linux |
 
 ### Supported Sites
 
