@@ -24,6 +24,7 @@ from core import config
 from core.bootstrap import BootstrapWorker
 from core.downloader import DownloadWorker
 from core.tool_manager import get_app_base_dir
+from ui_batch import BatchWindow
 
 
 class MainWindow(QMainWindow):
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self._download_worker = None
         self._output_dir = str(config.DEFAULT_OUTPUT_DIR)
         self._last_dl_pct = 0   # Fix 6: clamp progress bar against yt-dlp resets
+        self._batch_window = None
 
         self._apply_dark_theme()
         self._build_ui()
@@ -147,10 +149,16 @@ class MainWindow(QMainWindow):
         self._cancel_btn.setVisible(False)
         self._cancel_btn.clicked.connect(self._on_cancel_clicked)
 
+        batch_btn = QPushButton("Batch…")
+        batch_btn.setObjectName("secondary_btn")
+        batch_btn.setFixedWidth(80)
+        batch_btn.clicked.connect(self._on_batch_clicked)
+
         row.addWidget(fmt_label)
         row.addWidget(self._format_combo)
         row.addWidget(self._download_btn)
         row.addWidget(self._cancel_btn)
+        row.addWidget(batch_btn)
         row.addStretch()
 
         return row
@@ -410,6 +418,19 @@ class MainWindow(QMainWindow):
         is_audio = self._format_combo.currentData() == "audio"
         self._codec_label.setVisible(is_audio)
         self._codec_combo.setVisible(is_audio)
+
+    @Slot()
+    def _on_batch_clicked(self):
+        if self._batch_window is None:
+            self._batch_window = BatchWindow(self._state, self)
+            self._batch_window.destroyed.connect(self._on_batch_window_closed)
+        self._batch_window.show()
+        self._batch_window.raise_()
+        self._batch_window.activateWindow()
+
+    @Slot()
+    def _on_batch_window_closed(self):
+        self._batch_window = None
 
     @Slot()
     def _on_download_clicked(self):
