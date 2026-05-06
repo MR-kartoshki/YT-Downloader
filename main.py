@@ -1,18 +1,18 @@
 import sys
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
-
 from core.dependency_checker import check_and_install_dependencies
-from core.state import AppState
-from ui_main import MainWindow
 
 
 def main():
-    # Check/install missing dependencies before starting GUI
+    # Check/install missing dependencies before importing GUI modules
     if not check_and_install_dependencies():
         print("❌ Failed to install dependencies. Exiting.")
         sys.exit(1)
+
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+    from core.state import AppState
+    from ui_main import MainWindow
 
     app = QApplication(sys.argv)
     app.setApplicationName("YT Downloader")
