@@ -14,13 +14,14 @@ class DownloadWorker(QThread):
     download_complete = Signal(bool, str) # (success, message)
 
     def __init__(self, url: str, output_dir: str, format_mode: str, audio_codec: str,
-                 download_subtitles: bool, state, parent=None):
+                 download_subtitles: bool, download_playlist: bool, state, parent=None):
         super().__init__(parent)
         self._url = url
         self._output_dir = Path(output_dir)
         self._format_mode = format_mode  # 'video' or 'audio'
         self._audio_codec = audio_codec  # 'mp3', 'm4a', 'wav', 'flac', 'vorbis'
         self._download_subtitles = download_subtitles
+        self._download_playlist = download_playlist
         self._state = state
         self._stop = False
 
@@ -103,6 +104,7 @@ class DownloadWorker(QThread):
             "restrictfilenames": True,
             "writesubtitles": self._download_subtitles,
             "skip_unavailable_fragments": True,
+            "noplaylist": not self._download_playlist,
         }
 
     def _progress_hook(self, d: dict) -> None:

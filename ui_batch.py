@@ -73,6 +73,10 @@ class BatchJobRow(QFrame):
         self._subtitle_check = QCheckBox("Subs")
         self._subtitle_check.setStyleSheet("color: #aaa; font-size: 11px;")
 
+        # Playlist checkbox
+        self._playlist_check = QCheckBox("Playlist")
+        self._playlist_check.setStyleSheet("color: #aaa; font-size: 11px;")
+
         # Delete button
         delete_btn = QPushButton("×")
         delete_btn.setObjectName("delete_btn")
@@ -96,6 +100,7 @@ class BatchJobRow(QFrame):
         layout.addWidget(self._format_combo)
         layout.addWidget(self._codec_combo)
         layout.addWidget(self._subtitle_check)
+        layout.addWidget(self._playlist_check)
         layout.addWidget(delete_btn)
 
     def _on_format_changed(self):
@@ -109,6 +114,7 @@ class BatchJobRow(QFrame):
             "format_mode": self._format_combo.currentData(),
             "audio_codec": self._codec_combo.currentData(),
             "download_subtitles": self._subtitle_check.isChecked(),
+            "download_playlist": self._playlist_check.isChecked(),
         }
 
 
@@ -502,6 +508,7 @@ class BatchWindow(QMainWindow):
             format_mode=job["format_mode"],
             audio_codec=job["audio_codec"],
             download_subtitles=job["download_subtitles"],
+            download_playlist=job["download_playlist"],
             state=self._state,
         )
         self._download_worker.progress_update.connect(self._on_progress_update)

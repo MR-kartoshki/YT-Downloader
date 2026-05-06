@@ -186,9 +186,14 @@ class MainWindow(QMainWindow):
         self._subtitle_check = QCheckBox("Download Subtitles")
         self._subtitle_check.setStyleSheet("color: #aaa; font-size: 12px;")
 
+        # Playlist checkbox
+        self._playlist_check = QCheckBox("Download Playlist")
+        self._playlist_check.setStyleSheet("color: #aaa; font-size: 12px;")
+
         row.addWidget(self._codec_label)
         row.addWidget(self._codec_combo)
         row.addWidget(self._subtitle_check)
+        row.addWidget(self._playlist_check)
         row.addStretch()
 
         return row
@@ -510,6 +515,7 @@ class MainWindow(QMainWindow):
             format_mode=self._format_combo.currentData(),
             audio_codec=self._codec_combo.currentData(),
             download_subtitles=self._subtitle_check.isChecked(),
+            download_playlist=self._playlist_check.isChecked(),
             state=self._state,
         )
         self._download_worker.progress_update.connect(self._on_progress_update)
