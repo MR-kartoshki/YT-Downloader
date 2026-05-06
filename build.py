@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 YT Downloader - Build Script
-Builds a standalone .exe using PyInstaller
+Builds a standalone executable using PyInstaller
 """
 
 import subprocess
@@ -24,6 +24,42 @@ def run_command(cmd, description):
     except Exception as e:
         print(f"✗\n{e}")
         return False
+
+
+def get_icon_arg() -> list[str]:
+    """
+    Return ['--icon', '<path>'] with a platform-appropriate icon file.
+    On macOS, converts image.ico → image.icns using Pillow.
+    Returns [] if no icon is available.
+    """
+    ico = Path("image.ico")
+    if not ico.exists():
+        return []
+
+    if sys.platform == "darwin":
+        icns = Path("image.icns")
+        if not icns.exists():
+            try:
+                from PIL import Image
+                img = Image.open(ico).convert("RGBA")
+                img.save(str(icns))
+                print(f"  Converted image.ico → image.icns ✓")
+            except Exception as e:
+                print(f"  Warning: icon conversion failed ({e}), building without icon.")
+                return []
+        return ["--icon", str(icns)]
+
+    return ["--icon", str(ico)]
+
+
+def find_output() -> Path | None:
+    """Return the built executable/app path, handling all platform variants."""
+    candidates = [
+        Path("dist/ytdownloader.exe"),   # Windows --onefile
+        Path("dist/ytdownloader.app"),   # macOS --windowed
+        Path("dist/ytdownloader"),       # Linux / macOS --onefile
+    ]
+    return next((p for p in candidates if p.exists()), None)
 
 
 def main():
@@ -57,27 +93,24 @@ def main():
     print("\nBuilding executable...")
     print("(This will take 2-5 minutes on first build)\n")
 
-    # Note: --onefile can't be used with .spec files, so we build directly from main.py
-    if not run_command(
-        [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "main.py",
-            "--onefile",
-            "--windowed",
-            "--name", "ytdownloader",
-            "--icon", "image.ico",
-            "--add-data", "image.ico:.",
-            "--collect-all", "requests",
-            "--collect-all", "certifi",
-            "--collect-all", "yt_dlp",
-            "--hidden-import=yt_dlp",
-            "--hidden-import=yt_dlp.extractor",
-            "--hidden-import=yt_dlp.postprocessor",
-        ],
-        "Running PyInstaller (creating single .exe file)",
-    ):
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "main.py",
+        "--onefile",
+        "--windowed",
+        "--name", "ytdownloader",
+        "--add-data", "image.ico:.",
+        "--collect-all", "requests",
+        "--collect-all", "certifi",
+        "--collect-all", "yt_dlp",
+        "--hidden-import=yt_dlp",
+        "--hidden-import=yt_dlp.extractor",
+        "--hidden-import=yt_dlp.postprocessor",
+    ] + get_icon_arg()
+
+    if not run_command(cmd, "Running PyInstaller (creating single executable)"):
         print("\nERROR: Build failed")
         sys.exit(1)
 
@@ -92,23 +125,16 @@ def main():
             shutil.rmtree(item, ignore_errors=True)
 
     # Success
-    exe_path = Path("dist/ytdownloader/ytdownloader.exe")
-    if exe_path.exists():
+    output = find_output()
+    if output:
         print("\n" + "=" * 50)
         print("SUCCESS! Build complete ✓")
         print("=" * 50)
         print(f"\nYour executable is ready at:")
-        print(f"  {exe_path.resolve()}")
-        print(f"\nTo run it:")
-        print(f"  1. Open the dist/ytdownloader/ folder")
-        print(f"  2. Double-click ytdownloader.exe")
-        print(f"\nTo share it:")
-        print(f"  1. Copy the entire dist/ytdownloader/ folder")
-        print(f"  2. Share with others")
-        print(f"  3. They just need to double-click ytdownloader.exe")
+        print(f"  {output.resolve()}")
         print()
     else:
-        print("\nERROR: Build succeeded but exe not found")
+        print("\nERROR: Build succeeded but output not found")
         sys.exit(1)
 
 

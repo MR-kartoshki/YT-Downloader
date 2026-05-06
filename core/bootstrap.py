@@ -51,6 +51,9 @@ class BootstrapWorker(QThread):
                 self.log_message.emit(f"ffmpeg found in PATH: {ffmpeg_in_path}")
             elif not is_ffmpeg_available():
                 ok = self._fetch_tool("ffmpeg", config.FFMPEG_URL, tools_dir)
+                if ok and config.FFPROBE_URL:
+                    if not self._fetch_tool("ffprobe", config.FFPROBE_URL, tools_dir):
+                        self.log_message.emit("ffprobe download failed — some features may be limited.")
                 if ok:
                     ok = self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg")
                 if ok:
@@ -73,6 +76,9 @@ class BootstrapWorker(QThread):
                     self.log_message.emit(f"{ffmpeg_name} is corrupt, re-downloading...")
                     get_ffmpeg_path().unlink(missing_ok=True)
                     ok = self._fetch_tool("ffmpeg", config.FFMPEG_URL, tools_dir)
+                    if ok and config.FFPROBE_URL:
+                        if not self._fetch_tool("ffprobe", config.FFPROBE_URL, tools_dir):
+                            self.log_message.emit("ffprobe download failed — some features may be limited.")
                     if ok and self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg"):
                         self._state.ffmpeg_ready = True
                         self._state.ffmpeg_path = get_ffmpeg_path()
@@ -143,6 +149,8 @@ class BootstrapWorker(QThread):
         self.tool_status_changed.emit(tool_name, "Extracting...")
         if tool_name == "ffmpeg":
             ok = self._extract_ffmpeg(zip_path, tools_dir)
+        elif tool_name == "ffprobe":
+            ok = self._extract_single_binary(zip_path, tools_dir, "ffprobe")
         else:
             ok = self._extract_deno(zip_path, tools_dir)
 
@@ -199,38 +207,31 @@ class BootstrapWorker(QThread):
 
     def _extract_ffmpeg(self, zip_path: Path, dest_dir: Path) -> bool:
         """
-        Extract ffmpeg and ffprobe binaries from zip.
-        Handles both Windows (.exe) and Unix (no extension) formats.
+        Extract ffmpeg (and ffprobe where bundled) from zip.
+        On macOS, ffprobe is downloaded separately so its absence here is not an error.
         """
         try:
             with zipfile.ZipFile(zip_path) as zf:
                 names = zf.namelist()
 
-                # Platform-specific binary names
                 is_windows = sys.platform == "win32"
+                # macOS gets ffprobe from a separate archive (config.FFPROBE_URL)
+                ffprobe_required = sys.platform != "darwin"
                 target_binaries = [
-                    ("ffmpeg.exe" if is_windows else "ffmpeg", "ffmpeg"),
-                    ("ffprobe.exe" if is_windows else "ffprobe", "ffprobe"),
+                    ("ffmpeg.exe" if is_windows else "ffmpeg", "ffmpeg", True),
+                    ("ffprobe.exe" if is_windows else "ffprobe", "ffprobe", ffprobe_required),
                 ]
 
-                for target_name, base_name in target_binaries:
-                    match = None
-
-                    # Priority 1: exact case-insensitive match
+                for target_name, base_name, required in target_binaries:
                     match = next(
-                        (n for n in names if n.lower() == target_name.lower()),
-                        None,
+                        (n for n in names if n.lower() == target_name.lower()), None
                     )
-
-                    # Priority 2: ends with /binary or \binary (nested in folder)
                     if match is None:
                         match = next(
                             (n for n in names if n.lower().endswith(f"/{target_name.lower()}") or
                              n.lower().endswith(f"\\{target_name.lower()}")),
                             None,
                         )
-
-                    # Priority 3: contains base_name and is executable (heuristic for Unix)
                     if match is None:
                         match = next(
                             (n for n in names if base_name.lower() in n.lower() and
@@ -242,11 +243,10 @@ class BootstrapWorker(QThread):
                         dest = dest_dir / target_name
                         with zf.open(match) as src, open(dest, "wb") as dst:
                             dst.write(src.read())
-                        # Make executable on Unix
                         if not is_windows:
                             dest.chmod(0o755)
                         self.log_message.emit(f"Extracted {target_name}.")
-                    else:
+                    elif required:
                         self.log_message.emit(
                             f"Could not find {target_name} in zip — extraction failed."
                         )
@@ -254,6 +254,43 @@ class BootstrapWorker(QThread):
             return True
         except Exception as e:
             self.log_message.emit(f"ffmpeg extraction error: {e}")
+            return False
+
+    def _extract_single_binary(self, zip_path: Path, dest_dir: Path, name: str) -> bool:
+        """Extract a single named binary from a zip (used for macOS ffprobe)."""
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                names = zf.namelist()
+                is_windows = sys.platform == "win32"
+                target_name = f"{name}.exe" if is_windows else name
+
+                match = next((n for n in names if n.lower() == target_name.lower()), None)
+                if match is None:
+                    match = next(
+                        (n for n in names if n.lower().endswith(f"/{target_name.lower()}") or
+                         n.lower().endswith(f"\\{target_name.lower()}")),
+                        None,
+                    )
+                if match is None:
+                    match = next(
+                        (n for n in names if name.lower() in n.lower() and
+                         not n.lower().endswith(".txt") and not n.lower().endswith(".md")),
+                        None,
+                    )
+
+                if match is None:
+                    self.log_message.emit(f"Could not find {target_name} in zip.")
+                    return False
+
+                dest = dest_dir / target_name
+                with zf.open(match) as src, open(dest, "wb") as dst:
+                    dst.write(src.read())
+                if not is_windows:
+                    dest.chmod(0o755)
+                self.log_message.emit(f"Extracted {target_name}.")
+            return True
+        except Exception as e:
+            self.log_message.emit(f"{name} extraction error: {e}")
             return False
 
     def _extract_deno(self, zip_path: Path, dest_dir: Path) -> bool:
