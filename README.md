@@ -132,8 +132,12 @@ Click the **"Output…"** button to pick where downloads are saved. Default is `
 
 ### Remove Downloaded Tools
 
-Tools are stored in a `tools/` folder next to the app. To reset:
-- Delete the `tools/` folder
+Tools are stored at system root:
+- **Windows**: `C:\tools` (or your system drive, e.g., `D:\tools`)
+- **macOS/Linux**: `/tools`
+
+To reset:
+- Delete the `tools/` folder from your system root
 - On next run, the app re-downloads everything
 
 ## Privacy

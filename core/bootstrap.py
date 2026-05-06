@@ -36,6 +36,8 @@ class BootstrapWorker(QThread):
 
     def run(self):
         try:
+            # Get absolute path to system-root tools folder
+            # Windows: C:\tools, macOS/Linux: /tools
             tools_dir = get_tools_dir()
 
             # --- ffmpeg (required) ---
