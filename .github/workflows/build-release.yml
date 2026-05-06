@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -45,12 +48,19 @@ jobs:
         name: ytdownloader-windows
         path: dist/ytdownloader.exe
 
+    - name: Package macOS app
+      if: runner.os == 'macOS'
+      run: |
+        cd dist
+        ditto -c -k --sequesterRsrc --keepParent "ytdownloader.app" "ytdownloader-macos.zip"
+        cd ..
+
     - name: Upload macOS artifact
       if: runner.os == 'macOS'
       uses: actions/upload-artifact@v4
       with:
         name: ytdownloader-macos
-        path: dist/ytdownloader.app
+        path: dist/ytdownloader-macos.zip
 
     - name: Upload Linux artifact
       if: runner.os == 'Linux'
@@ -74,10 +84,10 @@ jobs:
       with:
         files: |
           ytdownloader-windows/ytdownloader.exe
-          ytdownloader-macos/ytdownloader.app
+          ytdownloader-macos/ytdownloader-macos.zip
           ytdownloader-linux/ytdownloader
         draft: false
         prerelease: false
         generate_release_notes: true
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ github.token }}
