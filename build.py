@@ -16,20 +16,23 @@ def run_command(cmd, description):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode == 0:
-            print("✓")
+            print("OK")
             return True
         else:
-            print(f"✗\n{result.stderr}")
+            print("FAILED")
+            if result.stderr:
+                print(result.stderr)
             return False
     except Exception as e:
-        print(f"✗\n{e}")
+        print("FAILED")
+        print(e)
         return False
 
 
 def get_icon_arg() -> list[str]:
     """
     Return ['--icon', '<path>'] with a platform-appropriate icon file.
-    On macOS, converts image.ico → image.icns using Pillow.
+    On macOS, converts image.ico -> image.icns using Pillow.
     Returns [] if no icon is available.
     """
     ico = Path("image.ico")
@@ -43,7 +46,7 @@ def get_icon_arg() -> list[str]:
                 from PIL import Image
                 img = Image.open(ico).convert("RGBA")
                 img.save(str(icns))
-                print(f"  Converted image.ico → image.icns ✓")
+                print(f"  Converted image.ico -> image.icns (OK)")
             except Exception as e:
                 print(f"  Warning: icon conversion failed ({e}), building without icon.")
                 return []
@@ -133,7 +136,7 @@ def main():
     output = find_output()
     if output:
         print("\n" + "=" * 50)
-        print("SUCCESS! Build complete ✓")
+        print("SUCCESS! Build complete")
         print("=" * 50)
         print(f"\nYour executable is ready at:")
         print(f"  {output.resolve()}")

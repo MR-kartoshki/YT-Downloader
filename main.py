@@ -6,7 +6,7 @@ from core.dependency_checker import check_and_install_dependencies
 def main():
     # Check/install missing dependencies before importing GUI modules
     if not check_and_install_dependencies():
-        print("❌ Failed to install dependencies. Exiting.")
+        print("Failed to install dependencies. Exiting.")
         sys.exit(1)
 
     from PySide6.QtCore import QTimer

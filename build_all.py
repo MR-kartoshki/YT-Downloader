@@ -41,7 +41,7 @@ def get_icon_arg() -> list[str]:
                 from PIL import Image
                 img = Image.open(ico).convert("RGBA")
                 img.save(str(icns))
-                print(f"  Converted image.ico → image.icns")
+                print(f"  Converted image.ico -> image.icns")
             except Exception as e:
                 print(f"  Warning: icon conversion failed ({e})")
                 return []
