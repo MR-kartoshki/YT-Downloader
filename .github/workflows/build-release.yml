@@ -40,21 +40,21 @@ jobs:
 
     - name: Upload Windows artifact
       if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ytdownloader-windows
         path: dist/ytdownloader.exe
 
     - name: Upload macOS artifact
       if: runner.os == 'macOS'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ytdownloader-macos
         path: dist/ytdownloader.app
 
     - name: Upload Linux artifact
       if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ytdownloader-linux
         path: dist/ytdownloader
@@ -67,7 +67,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
