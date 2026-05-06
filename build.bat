@@ -17,7 +17,7 @@ echo Building executable... (this will take 3-7 minutes on first build)
 echo.
 
 REM Run PyInstaller
-pyinstaller main.py --onefile --windowed --name ytdownloader --icon image.ico --add-data "image.ico:." --collect-all requests --collect-all certifi --collect-all yt_dlp --hidden-import=yt_dlp --hidden-import=yt_dlp.extractor --hidden-import=yt_dlp.postprocessor
+python -m PyInstaller main.py --onefile --windowed --name ytdownloader --icon image.ico --add-data "image.ico:." --collect-all requests --collect-all certifi --collect-all yt_dlp --hidden-import=yt_dlp --hidden-import=yt_dlp.extractor --hidden-import=yt_dlp.postprocessor
 
 if errorlevel 1 (
     echo.
