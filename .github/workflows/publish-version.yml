@@ -35,14 +35,18 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const release = await github.rest.repos.getLatestRelease({
+            const tag = `${{ steps.version.outputs.tag }}`;
+            const releaseResp = await github.rest.repos.getReleaseByTag({
               owner: context.repo.owner,
-              repo: context.repo.repo
+              repo: context.repo.repo,
+              tag
             });
-            const assets = release.assets.map(a => ({
+
+            const assets = (releaseResp.data.assets ?? []).map(a => ({
               name: a.name,
               url: a.browser_download_url
             }));
+
             core.setOutput('assets', JSON.stringify(assets));
 
       - name: Create version.json
