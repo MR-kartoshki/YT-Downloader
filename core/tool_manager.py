@@ -73,3 +73,12 @@ def validate_all_tools() -> dict:
         "ffmpeg": is_ffmpeg_available(),
         "deno": is_deno_available(),
     }
+
+
+def patch_tools_path() -> None:
+    """Prepend tools_dir to PATH once. Idempotent — safe to call multiple times."""
+    tools_dir = str(get_tools_dir())
+    sep = ";" if os.name == "nt" else ":"
+    current = os.environ.get("PATH", "")
+    if tools_dir not in current.split(sep):
+        os.environ["PATH"] = f"{tools_dir}{sep}{current}"

@@ -1,0 +1,46 @@
+name: Publish Latest Version
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Fetch release assets
+        id: assets
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const release = await github.rest.repos.getLatestRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const assets = release.assets.map(a => ({
+              name: a.name,
+              url: a.browser_download_url
+            }));
+            core.setOutput('assets', JSON.stringify(assets));
+
+      - name: Create version file
+        run: |
+          cat > version.json << 'EOF'
+          {
+            "version": "${{ steps.version.outputs.version }}",
+            "assets": ${{ steps.assets.outputs.assets }}
+          }
+          EOF
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: version.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

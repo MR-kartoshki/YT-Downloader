@@ -1,3 +1,4 @@
+import importlib.util
 import subprocess
 import sys
 
@@ -18,9 +19,7 @@ def check_and_install_dependencies():
     """
     missing = {}
     for import_name, pip_name in REQUIRED_PACKAGES.items():
-        try:
-            __import__(import_name)
-        except ImportError:
+        if importlib.util.find_spec(import_name) is None:
             missing[import_name] = pip_name
 
     if not missing:

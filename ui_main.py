@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPalette
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -11,10 +11,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
     QComboBox,
@@ -26,7 +27,9 @@ from PySide6.QtWidgets import (
 from core import config
 from core.bootstrap import BootstrapWorker
 from core.downloader import DownloadWorker, InfoFetchWorker
-from core.tool_manager import get_app_base_dir
+from core.tool_manager import get_app_base_dir, patch_tools_path
+from core.updater import IS_FROZEN, UpdateCheckWorker, UpdateDownloadWorker, apply_update
+from core.version import __version__ as _VERSION
 from ui_batch import BatchWindow
 import subprocess
 import sys
@@ -44,6 +47,12 @@ class RangeSlider(QWidget):
 
     _HR = 8   # handle radius px
     _TH = 5   # track height px
+
+    _COLOR_TRACK      = QColor("#3a3a3a")
+    _COLOR_ACTIVE     = QColor("#6200ea")
+    _COLOR_HANDLE     = QColor("#ffffff")
+    _COLOR_HANDLE_DIS = QColor("#666666")
+    _COLOR_OUTLINE    = QColor("#2a2a2a")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -94,21 +103,19 @@ class RangeSlider(QWidget):
 
         # Background track
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#3a3a3a"))
+        p.setBrush(self._COLOR_TRACK)
         p.drawRoundedRect(r, cy - th // 2, self.width() - 2 * r, th, th // 2, th // 2)
 
         # Active range highlight
         x_low = self._val_to_x(self._low)
         x_high = self._val_to_x(self._high)
         if x_high > x_low:
-            col = QColor("#6200ea") if self.isEnabled() else QColor("#3a3a3a")
-            p.setBrush(col)
+            p.setBrush(self._COLOR_ACTIVE if self.isEnabled() else self._COLOR_TRACK)
             p.drawRoundedRect(x_low, cy - th // 2, x_high - x_low, th, th // 2, th // 2)
 
         # Handles
-        handle_col = QColor("#ffffff") if self.isEnabled() else QColor("#666666")
-        p.setBrush(handle_col)
-        p.setPen(QPen(QColor("#2a2a2a"), 1))
+        p.setBrush(self._COLOR_HANDLE if self.isEnabled() else self._COLOR_HANDLE_DIS)
+        p.setPen(QPen(self._COLOR_OUTLINE, 1))
         p.drawEllipse(x_low - r, cy - r, 2 * r, 2 * r)
         p.drawEllipse(x_high - r, cy - r, 2 * r, 2 * r)
         p.end()
@@ -156,6 +163,11 @@ class MainWindow(QMainWindow):
         self._url_timer.setInterval(700)
         self._url_timer.timeout.connect(self._on_url_timer)
 
+        self._update_check_worker = None
+        self._update_download_worker = None
+        self._update_url = None
+        self._update_latest_version = None
+
         self._apply_dark_theme()
         self._build_ui()
         self.setWindowTitle("YT Downloader")
@@ -165,6 +177,9 @@ class MainWindow(QMainWindow):
         icon_path = get_app_base_dir() / "image.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
+
+        # Start background update check 3 s after launch (non-blocking)
+        QTimer.singleShot(3000, self._start_update_check)
 
     # ------------------------------------------------------------------ #
     # UI construction
@@ -206,12 +221,20 @@ class MainWindow(QMainWindow):
         self._deno_label = QLabel("deno: Checking…")
         self._deno_label.setStyleSheet("color: #aaa; font-size: 12px;")
 
+        self._update_btn = QPushButton("Checking…")
+        self._update_btn.setObjectName("secondary_btn")
+        self._update_btn.setFixedWidth(200)
+        self._update_btn.setEnabled(False)
+        self._update_btn.setToolTip(f"Current version: v{_VERSION}")
+        self._update_btn.clicked.connect(self._on_update_btn_clicked)
+
         layout.addWidget(self._ffmpeg_dot)
         layout.addWidget(self._ffmpeg_label)
         layout.addSpacing(8)
         layout.addWidget(self._deno_dot)
         layout.addWidget(self._deno_label)
         layout.addStretch()
+        layout.addWidget(self._update_btn)
 
         return frame
 
@@ -451,8 +474,8 @@ class MainWindow(QMainWindow):
 
         return widget
 
-    def _build_log_panel(self) -> QTextEdit:
-        self._log = QTextEdit()
+    def _build_log_panel(self) -> QPlainTextEdit:
+        self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
         self._log.setObjectName("log_panel")
         font = QFont()
@@ -571,7 +594,7 @@ class MainWindow(QMainWindow):
                 background-color: #6200ea;
                 border-radius: 3px;
             }
-            QTextEdit#log_panel {
+            QPlainTextEdit#log_panel {
                 background-color: #0d0d0d;
                 border: 1px solid #2a2a2a;
                 border-radius: 4px;
@@ -632,6 +655,7 @@ class MainWindow(QMainWindow):
         self._progress_bar.setValue(0)
         self._speed_label.setText("")
         if success:
+            patch_tools_path()
             self._download_btn.setEnabled(True)
             self._append_log("All tools ready. You can start downloading.")
         else:
@@ -645,6 +669,148 @@ class MainWindow(QMainWindow):
         self._bootstrap_worker = None
         if worker is not None:
             worker.deleteLater()
+
+    # ------------------------------------------------------------------ #
+    # Update checking
+    # ------------------------------------------------------------------ #
+
+    def _start_update_check(self):
+        if not IS_FROZEN:
+            self._update_btn.setText("Running from source")
+            self._update_btn.setEnabled(True)
+            self._update_btn.setToolTip(
+                f"v{_VERSION} (source) — run git pull to update"
+            )
+            return
+
+        if self._update_check_worker is not None:
+            return
+
+        self._update_check_worker = UpdateCheckWorker(self)
+        self._update_check_worker.update_available.connect(self._on_update_found)
+        self._update_check_worker.up_to_date.connect(self._on_up_to_date)
+        self._update_check_worker.check_failed.connect(self._on_update_check_failed)
+        self._update_check_worker.finished.connect(self._on_update_check_finished)
+        self._update_check_worker.start()
+
+    @Slot(str, str)
+    def _on_update_found(self, latest: str, url: str):
+        self._update_latest_version = latest
+        self._update_url = url
+        self._update_btn.setText(f"Update to v{latest}")
+        self._update_btn.setEnabled(True)
+        self._update_btn.setToolTip(
+            f"v{latest} is available (current: v{_VERSION}) — click to update"
+        )
+        # Switch to purple by clearing the secondary_btn objectName
+        self._update_btn.setObjectName("")
+        self._update_btn.style().unpolish(self._update_btn)
+        self._update_btn.style().polish(self._update_btn)
+
+    @Slot(str)
+    def _on_up_to_date(self, latest: str):
+        self._update_url = ""   # sentinel: checked and up to date
+        self._update_btn.setText("Up to date")
+        self._update_btn.setEnabled(True)
+        self._update_btn.setToolTip(f"v{_VERSION} is the latest version")
+
+    @Slot(str)
+    def _on_update_check_failed(self, error: str):
+        self._update_btn.setText("Check for updates")
+        self._update_btn.setEnabled(True)
+        self._update_btn.setToolTip(f"Update check failed: {error}\nClick to retry")
+
+    @Slot()
+    def _on_update_check_finished(self):
+        worker = self._update_check_worker
+        self._update_check_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+    @Slot()
+    def _on_update_btn_clicked(self):
+        if not IS_FROZEN:
+            QMessageBox.information(
+                self, "Running from source",
+                f"Current version: v{_VERSION}\n\n"
+                "You're running from source. To update, run:\n\n    git pull",
+            )
+            return
+
+        if self._update_url is None:
+            # Check failed or not yet run — retry
+            self._update_btn.setText("Checking…")
+            self._update_btn.setEnabled(False)
+            self._update_check_worker = None
+            self._start_update_check()
+            return
+
+        if self._update_url == "":
+            # Already up to date
+            QMessageBox.information(
+                self, "Up to date",
+                f"v{_VERSION} is the latest version.",
+            )
+            return
+
+        # Update available — confirm
+        reply = QMessageBox.question(
+            self, "Update available",
+            f"Version v{self._update_latest_version} is available.\n"
+            f"Current version: v{_VERSION}\n\n"
+            "Download and install now?\n"
+            "The app will restart automatically.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self._update_btn.setText("Downloading…")
+        self._update_btn.setEnabled(False)
+        self._progress_bar.setVisible(True)
+        self._progress_bar.setValue(0)
+        self._speed_label.setText("Downloading update…")
+
+        self._update_download_worker = UpdateDownloadWorker(self._update_url, self)
+        self._update_download_worker.progress.connect(self._on_update_progress)
+        self._update_download_worker.finished.connect(self._on_update_downloaded)
+        self._update_download_worker.failed.connect(self._on_update_download_failed)
+        self._update_download_worker.start()
+
+    @Slot(int)
+    def _on_update_progress(self, pct: int):
+        self._progress_bar.setValue(pct)
+        self._speed_label.setText(f"Downloading update… {pct}%")
+
+    @Slot(str)
+    def _on_update_downloaded(self, tmp_path: str):
+        worker = self._update_download_worker
+        self._update_download_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+        self._progress_bar.setValue(0)
+        self._speed_label.setText("")
+
+        QMessageBox.information(
+            self, "Restarting",
+            "Update downloaded. The app will now restart to apply it.",
+        )
+        apply_update(tmp_path)
+
+    @Slot(str)
+    def _on_update_download_failed(self, error: str):
+        worker = self._update_download_worker
+        self._update_download_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+        self._progress_bar.setValue(0)
+        self._speed_label.setText("")
+        self._update_btn.setText(f"Update to v{self._update_latest_version}")
+        self._update_btn.setEnabled(True)
+        QMessageBox.critical(self, "Update failed", f"Download error:\n{error}")
 
     # ------------------------------------------------------------------ #
     # Slots — URL / info fetch
@@ -946,7 +1112,5 @@ class MainWindow(QMainWindow):
 
     def _append_log(self, message: str):
         if message:
-            self._log.append(message)
-            self._log.verticalScrollBar().setValue(
-                self._log.verticalScrollBar().maximum()
-            )
+            self._log.appendPlainText(message)
+            self._log.moveCursor(QTextCursor.End)

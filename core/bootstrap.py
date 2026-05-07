@@ -1,6 +1,7 @@
 import shutil
 import sys
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
@@ -37,99 +38,104 @@ class BootstrapWorker(QThread):
 
     def run(self):
         try:
-            # Get absolute path to system-root tools folder
-            # Windows: C:\tools, macOS/Linux: /tools
             tools_dir = get_tools_dir()
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                f_ffmpeg = executor.submit(self._setup_ffmpeg, tools_dir)
+                f_deno   = executor.submit(self._setup_deno,   tools_dir)
+                f_ffmpeg.result()
+                f_deno.result()
+            self.bootstrap_complete.emit(self._state.tools_ready, "")
+        except Exception as e:
+            self.log_message.emit(f"Bootstrap error: {e}")
+            self.bootstrap_complete.emit(False, str(e))
 
-            # --- ffmpeg (required) ---
-            # First check if ffmpeg is in system PATH
-            ffmpeg_in_path = shutil.which("ffmpeg")
-            if ffmpeg_in_path:
+    def _setup_ffmpeg(self, tools_dir: Path) -> bool:
+        ffmpeg_in_path = shutil.which("ffmpeg")
+        if ffmpeg_in_path:
+            self._state.ffmpeg_ready = True
+            self._state.ffmpeg_path = Path(ffmpeg_in_path)
+            self.tool_status_changed.emit("ffmpeg", "Ready")
+            self.log_message.emit(f"ffmpeg found in PATH: {ffmpeg_in_path}")
+            return True
+        elif not is_ffmpeg_available():
+            ok = self._fetch_tool("ffmpeg", config.FFMPEG_URL, tools_dir)
+            if ok and config.FFPROBE_URL:
+                if not self._fetch_tool("ffprobe", config.FFPROBE_URL, tools_dir):
+                    self.log_message.emit("ffprobe download failed — some features may be limited.")
+            if ok:
+                ok = self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg")
+            if ok:
                 self._state.ffmpeg_ready = True
-                self._state.ffmpeg_path = Path(ffmpeg_in_path)
+                self._state.ffmpeg_path = get_ffmpeg_path()
                 self.tool_status_changed.emit("ffmpeg", "Ready")
-                self.log_message.emit(f"ffmpeg found in PATH: {ffmpeg_in_path}")
-            elif not is_ffmpeg_available():
+                self.log_message.emit("ffmpeg ready.")
+            else:
+                self.tool_status_changed.emit("ffmpeg", "Failed")
+                self.log_message.emit("ffmpeg setup failed.")
+            return ok
+        else:
+            if self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg"):
+                self._state.ffmpeg_ready = True
+                self._state.ffmpeg_path = get_ffmpeg_path()
+                self.tool_status_changed.emit("ffmpeg", "Ready")
+                self.log_message.emit("ffmpeg already present.")
+                return True
+            else:
+                ffmpeg_name = get_ffmpeg_path().name
+                self.log_message.emit(f"{ffmpeg_name} is corrupt, re-downloading...")
+                get_ffmpeg_path().unlink(missing_ok=True)
                 ok = self._fetch_tool("ffmpeg", config.FFMPEG_URL, tools_dir)
                 if ok and config.FFPROBE_URL:
                     if not self._fetch_tool("ffprobe", config.FFPROBE_URL, tools_dir):
                         self.log_message.emit("ffprobe download failed — some features may be limited.")
-                if ok:
-                    ok = self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg")
-                if ok:
+                if ok and self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg"):
                     self._state.ffmpeg_ready = True
                     self._state.ffmpeg_path = get_ffmpeg_path()
                     self.tool_status_changed.emit("ffmpeg", "Ready")
-                    self.log_message.emit("ffmpeg ready.")
                 else:
                     self.tool_status_changed.emit("ffmpeg", "Failed")
-                    self.log_message.emit("ffmpeg setup failed.")
-            else:
-                if self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg"):
-                    self._state.ffmpeg_ready = True
-                    self._state.ffmpeg_path = get_ffmpeg_path()
-                    self.tool_status_changed.emit("ffmpeg", "Ready")
-                    self.log_message.emit("ffmpeg already present.")
-                else:
-                    # Existing file is corrupt — re-download
-                    ffmpeg_name = get_ffmpeg_path().name
-                    self.log_message.emit(f"{ffmpeg_name} is corrupt, re-downloading...")
-                    get_ffmpeg_path().unlink(missing_ok=True)
-                    ok = self._fetch_tool("ffmpeg", config.FFMPEG_URL, tools_dir)
-                    if ok and config.FFPROBE_URL:
-                        if not self._fetch_tool("ffprobe", config.FFPROBE_URL, tools_dir):
-                            self.log_message.emit("ffprobe download failed — some features may be limited.")
-                    if ok and self._validate_binary(get_ffmpeg_path(), _MIN_FFMPEG_SIZE, "ffmpeg"):
-                        self._state.ffmpeg_ready = True
-                        self._state.ffmpeg_path = get_ffmpeg_path()
-                        self.tool_status_changed.emit("ffmpeg", "Ready")
-                    else:
-                        self.tool_status_changed.emit("ffmpeg", "Failed")
+                return ok
 
-            # --- deno ---
-            # First check if deno is in system PATH
-            deno_in_path = shutil.which("deno")
-            if deno_in_path:
+    def _setup_deno(self, tools_dir: Path) -> bool:
+        deno_in_path = shutil.which("deno")
+        if deno_in_path:
+            self._state.deno_ready = True
+            self._state.deno_path = Path(deno_in_path)
+            self.tool_status_changed.emit("deno", "Ready")
+            self.log_message.emit(f"deno found in PATH: {deno_in_path}")
+            return True
+        elif not is_deno_available():
+            ok = self._fetch_tool("deno", config.DENO_URL, tools_dir)
+            if ok:
+                ok = self._validate_binary(get_deno_path(), _MIN_DENO_SIZE, "deno")
+            if ok:
                 self._state.deno_ready = True
-                self._state.deno_path = Path(deno_in_path)
+                self._state.deno_path = get_deno_path()
                 self.tool_status_changed.emit("deno", "Ready")
-                self.log_message.emit(f"deno found in PATH: {deno_in_path}")
-            elif not is_deno_available():
+                self.log_message.emit("deno ready.")
+            else:
+                self.tool_status_changed.emit("deno", "Failed")
+                self.log_message.emit("deno setup failed.")
+            return ok
+        else:
+            if self._validate_binary(get_deno_path(), _MIN_DENO_SIZE, "deno"):
+                self._state.deno_ready = True
+                self._state.deno_path = get_deno_path()
+                self.tool_status_changed.emit("deno", "Ready")
+                self.log_message.emit("deno already present.")
+                return True
+            else:
+                deno_name = get_deno_path().name
+                self.log_message.emit(f"{deno_name} is corrupt, re-downloading...")
+                get_deno_path().unlink(missing_ok=True)
                 ok = self._fetch_tool("deno", config.DENO_URL, tools_dir)
-                if ok:
-                    ok = self._validate_binary(get_deno_path(), _MIN_DENO_SIZE, "deno")
-                if ok:
+                if ok and self._validate_binary(get_deno_path(), _MIN_DENO_SIZE, "deno"):
                     self._state.deno_ready = True
                     self._state.deno_path = get_deno_path()
                     self.tool_status_changed.emit("deno", "Ready")
-                    self.log_message.emit("deno ready.")
                 else:
                     self.tool_status_changed.emit("deno", "Failed")
-                    self.log_message.emit("deno setup failed.")
-            else:
-                if self._validate_binary(get_deno_path(), _MIN_DENO_SIZE, "deno"):
-                    self._state.deno_ready = True
-                    self._state.deno_path = get_deno_path()
-                    self.tool_status_changed.emit("deno", "Ready")
-                    self.log_message.emit("deno already present.")
-                else:
-                    deno_name = get_deno_path().name
-                    self.log_message.emit(f"{deno_name} is corrupt, re-downloading...")
-                    get_deno_path().unlink(missing_ok=True)
-                    ok = self._fetch_tool("deno", config.DENO_URL, tools_dir)
-                    if ok and self._validate_binary(get_deno_path(), _MIN_DENO_SIZE, "deno"):
-                        self._state.deno_ready = True
-                        self._state.deno_path = get_deno_path()
-                        self.tool_status_changed.emit("deno", "Ready")
-                    else:
-                        self.tool_status_changed.emit("deno", "Failed")
-
-            # tools_ready only requires ffmpeg (see state.py)
-            self.bootstrap_complete.emit(self._state.tools_ready, "")
-
-        except Exception as e:
-            self.log_message.emit(f"Bootstrap error: {e}")
-            self.bootstrap_complete.emit(False, str(e))
+                return ok
 
     # ------------------------------------------------------------------ #
     # High-level fetch helper

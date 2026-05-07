@@ -5,7 +5,6 @@ import yt_dlp
 from PySide6.QtCore import QThread, Signal
 
 from core import config
-from core.tool_manager import get_tools_dir
 
 
 class InfoFetchWorker(QThread):
@@ -21,10 +20,6 @@ class InfoFetchWorker(QThread):
         self._state = state
 
     def run(self):
-        tools_dir = str(get_tools_dir())
-        old_path = os.environ.get("PATH", "")
-        path_sep = ";" if os.name == "nt" else ":"
-        os.environ["PATH"] = f"{tools_dir}{path_sep}{old_path}"
         try:
             opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -45,8 +40,6 @@ class InfoFetchWorker(QThread):
                 self.fetch_failed.emit("No duration found")
         except Exception as e:
             self.fetch_failed.emit(str(e))
-        finally:
-            os.environ["PATH"] = old_path
 
     @staticmethod
     def _extract_heights_from_formats(info):
@@ -112,37 +105,28 @@ class DownloadWorker(QThread):
         self._audio_bitrate = audio_bitrate  # 'max' or bitrate like '192'
         self._state = state
         self._stop = False
+        self._last_logged_pct = -1
 
     def cancel(self):
         self._stop = True
 
     def run(self):
-        # Add tools dir to PATH so yt-dlp can find deno and ffmpeg
-        tools_dir = str(get_tools_dir())
-        old_path = os.environ.get("PATH", "")
-        path_sep = ";" if os.name == "nt" else ":"
-        os.environ["PATH"] = f"{tools_dir}{path_sep}{old_path}"
-
         # Fix 7: download_complete is always emitted, regardless of how run() exits.
         try:
-            try:
-                opts = self._build_ydl_opts()
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    ydl.download([self._url])
-                if self._stop:
-                    self.download_complete.emit(False, "Cancelled.")
-                else:
-                    self.download_complete.emit(True, "Download complete.")
-            except yt_dlp.utils.DownloadCancelled:
+            opts = self._build_ydl_opts()
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([self._url])
+            if self._stop:
                 self.download_complete.emit(False, "Cancelled.")
-            except Exception as e:
-                if self._stop:
-                    self.download_complete.emit(False, "Cancelled.")
-                else:
-                    self.download_complete.emit(False, str(e))
-        finally:
-            # Restore original PATH
-            os.environ["PATH"] = old_path
+            else:
+                self.download_complete.emit(True, "Download complete.")
+        except yt_dlp.utils.DownloadCancelled:
+            self.download_complete.emit(False, "Cancelled.")
+        except Exception as e:
+            if self._stop:
+                self.download_complete.emit(False, "Cancelled.")
+            else:
+                self.download_complete.emit(False, str(e))
 
     def _build_ydl_opts(self) -> dict:
         ffmpeg_dir = str(self._state.ffmpeg_path.parent) if self._state.ffmpeg_path else ""
@@ -248,7 +232,9 @@ class DownloadWorker(QThread):
             speed = d.get("_speed_str", "").strip()
             eta = d.get("_eta_str", "").strip()
             self.progress_update.emit(pct, speed)
-            self.status_update.emit(f"Downloading {pct}%  {speed}  ETA {eta}")
+            if pct >= self._last_logged_pct + 2 or pct == 100:
+                self._last_logged_pct = pct
+                self.status_update.emit(f"Downloading {pct}%  {speed}  ETA {eta}")
 
         elif status == "finished":
             filename = Path(d.get("filename", "")).name
