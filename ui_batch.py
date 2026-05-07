@@ -75,12 +75,21 @@ class BatchJobRow(QFrame):
         """)
         paste_btn.clicked.connect(self._on_paste)
 
-        # Format selector
+        # Type selector
         self._format_combo = QComboBox()
-        self._format_combo.addItem("Video (MP4)", "video")
+        self._format_combo.addItem("Video", "video")
         self._format_combo.addItem("Audio", "audio")
-        self._format_combo.setFixedWidth(140)
+        self._format_combo.setFixedWidth(90)
         self._format_combo.currentIndexChanged.connect(self._on_format_changed)
+
+        # Video format selector (video only)
+        self._video_fmt_combo = QComboBox()
+        self._video_fmt_combo.addItem("MP4", "mp4")
+        self._video_fmt_combo.addItem("MKV", "mkv")
+        self._video_fmt_combo.addItem("WebM", "webm")
+        self._video_fmt_combo.addItem("AVI", "avi")
+        self._video_fmt_combo.addItem("MOV", "mov")
+        self._video_fmt_combo.setFixedWidth(80)
 
         # Quality selector (video only)
         self._quality_combo = QComboBox()
@@ -166,6 +175,7 @@ class BatchJobRow(QFrame):
         layout.addWidget(clear_btn)
         layout.addWidget(self._filename_input)
         layout.addWidget(self._format_combo)
+        layout.addWidget(self._video_fmt_combo)
         layout.addWidget(self._quality_combo)
         layout.addWidget(self._fps_combo)
         layout.addWidget(self._codec_combo)
@@ -207,10 +217,9 @@ class BatchJobRow(QFrame):
     def _on_format_changed(self):
         is_audio = self._format_combo.currentData() == "audio"
         is_video = not is_audio
-        # Video options
+        self._video_fmt_combo.setVisible(is_video)
         self._quality_combo.setVisible(is_video)
         self._fps_combo.setVisible(is_video)
-        # Audio options
         self._codec_combo.setVisible(is_audio)
         self._bitrate_combo.setVisible(is_audio)
 
@@ -219,6 +228,7 @@ class BatchJobRow(QFrame):
         return {
             "url": self._url_input.text().strip(),
             "format_mode": self._format_combo.currentData(),
+            "video_container": self._video_fmt_combo.currentData(),
             "quality": self._quality_combo.currentData(),
             "fps": self._fps_combo.currentData(),
             "audio_codec": self._codec_combo.currentData(),
@@ -619,6 +629,7 @@ class BatchWindow(QMainWindow):
             url=job["url"],
             output_dir=self._output_dir,
             format_mode=job["format_mode"],
+            video_container=job.get("video_container", "mp4"),
             audio_codec=job["audio_codec"],
             download_subtitles=job["download_subtitles"],
             download_playlist=job["download_playlist"],

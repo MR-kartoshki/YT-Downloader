@@ -305,14 +305,14 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.setSpacing(8)
 
-        fmt_label = QLabel("Format")
-        fmt_label.setFixedWidth(48)
+        fmt_label = QLabel("Type")
+        fmt_label.setFixedWidth(36)
         fmt_label.setStyleSheet("color: #aaa; font-size: 12px;")
 
         self._format_combo = QComboBox()
-        self._format_combo.addItem("Video (MP4)", "video")
+        self._format_combo.addItem("Video", "video")
         self._format_combo.addItem("Audio", "audio")
-        self._format_combo.setFixedWidth(140)
+        self._format_combo.setFixedWidth(90)
         self._format_combo.currentIndexChanged.connect(self._on_format_changed)
 
         self._quality_label = QLabel("Quality")
@@ -368,9 +368,22 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.setSpacing(8)
 
-        # Audio codec selector (shown only for audio format)
-        self._codec_label = QLabel("Audio Codec")
-        self._codec_label.setFixedWidth(80)
+        # Video format selector (shown only for video type)
+        self._video_fmt_label = QLabel("Format")
+        self._video_fmt_label.setFixedWidth(48)
+        self._video_fmt_label.setStyleSheet("color: #aaa; font-size: 12px;")
+
+        self._video_fmt_combo = QComboBox()
+        self._video_fmt_combo.addItem("MP4", "mp4")
+        self._video_fmt_combo.addItem("MKV", "mkv")
+        self._video_fmt_combo.addItem("WebM", "webm")
+        self._video_fmt_combo.addItem("AVI", "avi")
+        self._video_fmt_combo.addItem("MOV", "mov")
+        self._video_fmt_combo.setFixedWidth(100)
+
+        # Audio codec selector (shown only for audio type)
+        self._codec_label = QLabel("Codec")
+        self._codec_label.setFixedWidth(44)
         self._codec_label.setStyleSheet("color: #aaa; font-size: 12px;")
         self._codec_label.setVisible(False)
 
@@ -401,6 +414,8 @@ class MainWindow(QMainWindow):
         self._playlist_check = QCheckBox("Download Playlist")
         self._playlist_check.setStyleSheet("color: #aaa; font-size: 12px;")
 
+        row.addWidget(self._video_fmt_label)
+        row.addWidget(self._video_fmt_combo)
         row.addWidget(self._codec_label)
         row.addWidget(self._codec_combo)
         row.addWidget(self._bitrate_label)
@@ -928,15 +943,17 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_format_changed(self):
         is_audio = self._format_combo.currentData() == "audio"
-        self._codec_label.setVisible(is_audio)
-        self._codec_combo.setVisible(is_audio)
-        self._bitrate_label.setVisible(is_audio)
-        self._bitrate_combo.setVisible(is_audio)
         is_video = not is_audio
+        self._video_fmt_label.setVisible(is_video)
+        self._video_fmt_combo.setVisible(is_video)
         self._quality_label.setVisible(is_video)
         self._quality_combo.setVisible(is_video)
         self._fps_label.setVisible(is_video)
         self._fps_combo.setVisible(is_video)
+        self._codec_label.setVisible(is_audio)
+        self._codec_combo.setVisible(is_audio)
+        self._bitrate_label.setVisible(is_audio)
+        self._bitrate_combo.setVisible(is_audio)
 
     @Slot()
     def _on_batch_clicked(self):
@@ -1044,6 +1061,7 @@ class MainWindow(QMainWindow):
             url=url,
             output_dir=self._output_dir,
             format_mode=self._format_combo.currentData(),
+            video_container=self._video_fmt_combo.currentData(),
             audio_codec=self._codec_combo.currentData(),
             download_subtitles=self._subtitle_check.isChecked(),
             download_playlist=self._playlist_check.isChecked(),

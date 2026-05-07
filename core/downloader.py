@@ -89,12 +89,14 @@ class DownloadWorker(QThread):
     def __init__(self, url: str, output_dir: str, format_mode: str, audio_codec: str,
                  download_subtitles: bool, download_playlist: bool, state,
                  custom_filename: str = "", trim_start: int = None, trim_end: int = None,
-                 quality: str = "max", fps: str = "max", audio_bitrate: str = "max", parent=None):
+                 quality: str = "max", fps: str = "max", audio_bitrate: str = "max",
+                 video_container: str = "mp4", parent=None):
         super().__init__(parent)
         self._url = url
         self._output_dir = Path(output_dir)
-        self._format_mode = format_mode  # 'video' or 'audio'
-        self._audio_codec = audio_codec  # 'mp3', 'm4a', 'wav', 'flac', 'vorbis'
+        self._format_mode = format_mode      # 'video' or 'audio'
+        self._video_container = video_container  # 'mp4', 'mkv', 'webm', 'avi', 'mov'
+        self._audio_codec = audio_codec      # 'mp3', 'm4a', 'wav', 'flac', 'vorbis'
         self._download_subtitles = download_subtitles
         self._download_playlist = download_playlist
         self._custom_filename = custom_filename
@@ -134,7 +136,6 @@ class DownloadWorker(QThread):
 
         if self._format_mode == "audio":
             fmt = "bestaudio/best"
-            # Map codec selection to yt-dlp codec
             codec_map = {
                 "mp3": "mp3",
                 "m4a": "aac",
@@ -143,7 +144,6 @@ class DownloadWorker(QThread):
                 "vorbis": "vorbis",
             }
             codec = codec_map.get(self._audio_codec, "mp3")
-            # Use selected bitrate or default to 192
             bitrate = self._audio_bitrate if self._audio_bitrate != "max" else "192"
             postprocessors.append({
                 "key": "FFmpegExtractAudio",
@@ -151,27 +151,35 @@ class DownloadWorker(QThread):
                 "preferredquality": bitrate,
             })
         else:
-            # Avoid OPUS audio (not compatible with MP4) — prefer m4a or AAC
-            # Build quality/fps constraints
-            main_constraints = "[ext=mp4]"
-            other_constraints = ""
+            container = self._video_container  # 'mp4', 'mkv', 'webm', 'avi', 'mov'
+            quality_constraint = ""
+            fps_constraint = ""
 
             if self._quality != "max":
                 h = int(self._quality)
-                main_constraints += f"[height<={h}]"
-                other_constraints += f"[height<={h}]"
+                quality_constraint = f"[height<={h}]"
 
             if self._fps != "max":
                 f = int(self._fps)
-                main_constraints += f"[fps<={f}]"
-                other_constraints += f"[fps<={f}]"
+                fps_constraint = f"[fps<={f}]"
 
-            fmt = (f"bestvideo{main_constraints}+bestaudio[ext!=webm]/"
-                   f"bestvideo{other_constraints}+bestaudio/best")
+            qf = quality_constraint + fps_constraint
+
+            if container == "mp4":
+                # Prefer native MP4 sources; avoid webm audio (incompatible with MP4)
+                fmt = (f"bestvideo[ext=mp4]{qf}+bestaudio[ext!=webm]/"
+                       f"bestvideo{qf}+bestaudio/best")
+            elif container == "webm":
+                # Prefer native WebM sources (VP8/VP9 + Vorbis/Opus)
+                fmt = (f"bestvideo[ext=webm]{qf}+bestaudio[ext=webm]/"
+                       f"bestvideo{qf}+bestaudio/best")
+            else:
+                # MKV, AVI, MOV — no codec restrictions, let ffmpeg handle remuxing
+                fmt = f"bestvideo{qf}+bestaudio/best"
 
             postprocessors.append({
                 "key": "FFmpegVideoConvertor",
-                "preferedformat": "mp4",
+                "preferedformat": container,
             })
 
         # Add subtitle download if requested
@@ -196,11 +204,13 @@ class DownloadWorker(QThread):
             "quiet": True,
             "no_warnings": False,
             "logger": self._YtdlpLogger(self.status_update),
-            "merge_output_format": "mp4",
             "writesubtitles": self._download_subtitles,
             "skip_unavailable_fragments": True,
             "noplaylist": not self._download_playlist,
         }
+
+        if self._format_mode != "audio":
+            opts["merge_output_format"] = self._video_container
 
         if self._trim_start is not None and self._trim_end is not None:
             opts["download_ranges"] = yt_dlp.utils.download_range_func(
