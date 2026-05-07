@@ -971,7 +971,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_open_folder(self):
         if sys.platform == "win32":
-            subprocess.Popen(f'explorer /select,"{self._output_dir}"')
+            subprocess.Popen(["explorer", f"/select,{self._output_dir}"])
         elif sys.platform == "darwin":
             subprocess.Popen(["open", "-R", self._output_dir])
         else:

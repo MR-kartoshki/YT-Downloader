@@ -599,14 +599,6 @@ class BatchWindow(QMainWindow):
 
     def _start_next_job(self):
         """Start the next job in the queue."""
-        # Clean up previous worker if it exists
-        if self._download_worker is not None:
-            self._download_worker.progress_update.disconnect()
-            self._download_worker.status_update.disconnect()
-            self._download_worker.download_complete.disconnect()
-            self._download_worker.finished.disconnect()
-            self._download_worker.deleteLater()
-
         if self._current_job_index >= len(self._jobs):
             # All jobs done
             self._download_worker = None
@@ -622,7 +614,9 @@ class BatchWindow(QMainWindow):
         total = len(self._jobs)
 
         self._job_counter.setText(f"{job_num}/{total}")
-        self._append_log(f"Processing: {job['url'][:60]}…")
+        url = job['url']
+        url_display = url if len(url) <= 60 else url[:60] + "…"
+        self._append_log(f"Processing: {url_display}")
         self._progress_bar.setValue(0)
 
         self._download_worker = DownloadWorker(
@@ -661,12 +655,16 @@ class BatchWindow(QMainWindow):
         self._progress_bar.setValue(100 if success else 0)
         self._append_log(message)
         self._current_job_index += 1
-        self._start_next_job()
+        # Do not call _start_next_job here — run() hasn't returned yet.
 
     @Slot()
     def _on_worker_finished(self):
-        # Worker is already cleaned up in _start_next_job
-        pass
+        # run() has returned; safe to destroy the worker and start the next job.
+        worker = self._download_worker
+        self._download_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self._start_next_job()
 
     def _set_ui_downloading(self, active: bool):
         self._start_btn.setVisible(not active)

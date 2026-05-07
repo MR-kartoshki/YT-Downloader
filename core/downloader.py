@@ -144,12 +144,13 @@ class DownloadWorker(QThread):
                 "vorbis": "vorbis",
             }
             codec = codec_map.get(self._audio_codec, "mp3")
-            bitrate = self._audio_bitrate if self._audio_bitrate != "max" else "192"
-            postprocessors.append({
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": codec,
-                "preferredquality": bitrate,
-            })
+            pp: dict = {"key": "FFmpegExtractAudio", "preferredcodec": codec}
+            # Only lossy codecs use a bitrate; WAV/FLAC are lossless and ignore it
+            if codec not in ("wav", "flac"):
+                pp["preferredquality"] = (
+                    self._audio_bitrate if self._audio_bitrate != "max" else "192"
+                )
+            postprocessors.append(pp)
         else:
             container = self._video_container  # 'mp4', 'mkv', 'webm', 'avi', 'mov'
             quality_constraint = ""

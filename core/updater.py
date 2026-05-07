@@ -53,7 +53,16 @@ def _set_cache(data: dict) -> None:
 
 
 def _parse_version(v: str) -> tuple:
-    return tuple(int(x) for x in v.lstrip("v").split("."))
+    result = []
+    for part in v.lstrip("v").split("."):
+        numeric = ""
+        for ch in part:
+            if ch.isdigit():
+                numeric += ch
+            else:
+                break
+        result.append(int(numeric) if numeric else 0)
+    return tuple(result)
 
 
 class UpdateCheckWorker(QThread):
@@ -117,12 +126,12 @@ class UpdateDownloadWorker(QThread):
         self._url = url
 
     def run(self):
+        suffix = Path(self._url).suffix or ".tmp"
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
         try:
             resp = requests.get(self._url, stream=True, timeout=60, allow_redirects=True)
             resp.raise_for_status()
             total = int(resp.headers.get("Content-Length", 0))
-            suffix = Path(self._url).suffix or ".tmp"
-            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
             downloaded = 0
             with os.fdopen(fd, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=65536):
@@ -134,6 +143,10 @@ class UpdateDownloadWorker(QThread):
             self.progress.emit(100)
             self.finished.emit(tmp_path)
         except Exception as e:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
             self.failed.emit(str(e))
 
 
@@ -174,18 +187,34 @@ def _extract_macos_binary(zip_path: str) -> str | None:
 
 def _apply_windows(tmp_path: str, current_exe: Path) -> None:
     import subprocess
-    fd, bat_path = tempfile.mkstemp(suffix=".bat")
-    bat = (
-        "@echo off\n"
-        "timeout /t 2 /nobreak >nul\n"
-        f'move /Y "{tmp_path}" "{current_exe}"\n'
-        f'start "" "{current_exe}"\n'
-        'del "%~f0"\n'
-    )
+    pid = os.getpid()
+    # Escape single quotes by doubling them (PowerShell single-quoted string rule)
+    src = str(Path(tmp_path)).replace("'", "''")
+    dst = str(current_exe).replace("'", "''")
+    ps_lines = [
+        f"$src = '{src}'",
+        f"$dst = '{dst}'",
+        # Wait for this process to actually exit before touching the file
+        f"try {{ Wait-Process -Id {pid} -Timeout 30 -ErrorAction Stop }} catch {{}}",
+        # Retry the move up to 10 times (1 s apart) in case the file is briefly locked
+        "for ($i = 0; $i -lt 10; $i++) {",
+        "    try { Move-Item -Force $src $dst -ErrorAction Stop; break }",
+        "    catch { Start-Sleep -Seconds 1 }",
+        "}",
+        "Start-Process $dst",
+        # Clean up this script file
+        "Remove-Item -Force -ErrorAction SilentlyContinue $MyInvocation.MyCommand.Path",
+    ]
+    fd, ps_path = tempfile.mkstemp(suffix=".ps1")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(bat)
+        f.write("\n".join(ps_lines))
     subprocess.Popen(
-        ["cmd.exe", "/c", bat_path],
+        [
+            "powershell.exe",
+            "-ExecutionPolicy", "Bypass",
+            "-WindowStyle", "Hidden",
+            "-File", ps_path,
+        ],
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         close_fds=True,
     )
@@ -194,5 +223,8 @@ def _apply_windows(tmp_path: str, current_exe: Path) -> None:
 
 def _apply_unix(tmp_path: str, current_exe: Path) -> None:
     os.chmod(tmp_path, 0o755)
-    os.replace(tmp_path, str(current_exe))
+    try:
+        os.replace(tmp_path, str(current_exe))
+    except OSError as e:
+        raise RuntimeError(f"Could not replace executable: {e}") from e
     os.execv(str(current_exe), sys.argv)

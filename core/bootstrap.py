@@ -42,8 +42,12 @@ class BootstrapWorker(QThread):
             with ThreadPoolExecutor(max_workers=2) as executor:
                 f_ffmpeg = executor.submit(self._setup_ffmpeg, tools_dir)
                 f_deno   = executor.submit(self._setup_deno,   tools_dir)
-                f_ffmpeg.result()
-                f_deno.result()
+            exc_ffmpeg = f_ffmpeg.exception()
+            exc_deno   = f_deno.exception()
+            if exc_ffmpeg:
+                raise exc_ffmpeg
+            if exc_deno:
+                raise exc_deno
             self.bootstrap_complete.emit(self._state.tools_ready, "")
         except Exception as e:
             self.log_message.emit(f"Bootstrap error: {e}")
