@@ -51,6 +51,29 @@ class BatchJobRow(QFrame):
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText("Paste video URL here…")
         self._url_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._url_input.setAcceptDrops(True)
+
+        # Custom filename (hidden by default)
+        self._filename_input = QLineEdit()
+        self._filename_input.setPlaceholderText("filename (optional)")
+        self._filename_input.setFixedWidth(120)
+        self._filename_input.setVisible(False)
+
+        paste_btn = QPushButton("Paste")
+        paste_btn.setFixedWidth(50)
+        paste_btn.setObjectName("mini_btn")
+        paste_btn.setStyleSheet("""
+            QPushButton#mini_btn {
+                background-color: #2a2a2a;
+                color: #aaa;
+                border: none;
+                border-radius: 3px;
+                padding: 2px 8px;
+                font-size: 10px;
+            }
+            QPushButton#mini_btn:hover { background-color: #383838; }
+        """)
+        paste_btn.clicked.connect(self._on_paste)
 
         # Format selector
         self._format_combo = QComboBox()
@@ -59,6 +82,18 @@ class BatchJobRow(QFrame):
         self._format_combo.setFixedWidth(140)
         self._format_combo.currentIndexChanged.connect(self._on_format_changed)
 
+        # Quality selector (video only)
+        self._quality_combo = QComboBox()
+        self._quality_combo.addItem("Max", "max")
+        self._quality_combo.setFixedWidth(80)
+        self._quality_combo.setVisible(False)
+
+        # FPS selector (video only)
+        self._fps_combo = QComboBox()
+        self._fps_combo.addItem("Max", "max")
+        self._fps_combo.setFixedWidth(70)
+        self._fps_combo.setVisible(False)
+
         # Audio codec selector
         self._codec_combo = QComboBox()
         self._codec_combo.addItem("MP3", "mp3")
@@ -66,8 +101,14 @@ class BatchJobRow(QFrame):
         self._codec_combo.addItem("WAV (Lossless)", "wav")
         self._codec_combo.addItem("FLAC (Lossless)", "flac")
         self._codec_combo.addItem("OGG (Vorbis)", "vorbis")
-        self._codec_combo.setFixedWidth(160)
+        self._codec_combo.setFixedWidth(140)
         self._codec_combo.setVisible(False)
+
+        # Audio bitrate selector (audio only)
+        self._bitrate_combo = QComboBox()
+        self._bitrate_combo.addItem("Max", "max")
+        self._bitrate_combo.setFixedWidth(70)
+        self._bitrate_combo.setVisible(False)
 
         # Subtitle checkbox
         self._subtitle_check = QCheckBox("Subs")
@@ -76,6 +117,30 @@ class BatchJobRow(QFrame):
         # Playlist checkbox
         self._playlist_check = QCheckBox("Playlist")
         self._playlist_check.setStyleSheet("color: #aaa; font-size: 11px;")
+
+        # Trim checkbox
+        self._trim_check = QCheckBox("Trim")
+        self._trim_check.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._trim_check.setToolTip("Trim video segment")
+        self._trim_check.toggled.connect(self._on_trim_toggled)
+
+        # Clear button
+        clear_btn = QPushButton("×")
+        clear_btn.setObjectName("mini_clear_btn")
+        clear_btn.setFixedWidth(28)
+        clear_btn.setFixedHeight(28)
+        clear_btn.setStyleSheet("""
+            QPushButton#mini_clear_btn {
+                background-color: #2a2a2a;
+                color: #aaa;
+                border: none;
+                border-radius: 3px;
+                padding: 0px;
+                font-size: 14px;
+            }
+            QPushButton#mini_clear_btn:hover { background-color: #383838; }
+        """)
+        clear_btn.clicked.connect(self._on_clear_url)
 
         # Delete button
         delete_btn = QPushButton("×")
@@ -97,22 +162,70 @@ class BatchJobRow(QFrame):
         delete_btn.clicked.connect(self.removed.emit)
 
         layout.addWidget(self._url_input, stretch=1)
+        layout.addWidget(paste_btn)
+        layout.addWidget(clear_btn)
+        layout.addWidget(self._filename_input)
         layout.addWidget(self._format_combo)
+        layout.addWidget(self._quality_combo)
+        layout.addWidget(self._fps_combo)
         layout.addWidget(self._codec_combo)
+        layout.addWidget(self._bitrate_combo)
         layout.addWidget(self._subtitle_check)
         layout.addWidget(self._playlist_check)
+        layout.addWidget(self._trim_check)
         layout.addWidget(delete_btn)
 
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasText():
+            text = event.mimeData().text().strip()
+            if text.startswith(("http://", "https://", "www.")):
+                event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        text = event.mimeData().text().strip()
+        if text.startswith(("http://", "https://", "www.")):
+            self._url_input.setText(text)
+            event.acceptProposedAction()
+
+    @Slot()
+    def _on_paste(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().strip()
+        if text:
+            self._url_input.setText(text)
+
+    @Slot()
+    def _on_clear_url(self):
+        self._url_input.clear()
+        self._url_input.setFocus()
+
+    @Slot(bool)
+    def _on_trim_toggled(self, checked: bool):
+        pass  # Trim in batch uses default 0,0 (no trim)
+
+    @Slot()
     def _on_format_changed(self):
         is_audio = self._format_combo.currentData() == "audio"
+        is_video = not is_audio
+        # Video options
+        self._quality_combo.setVisible(is_video)
+        self._fps_combo.setVisible(is_video)
+        # Audio options
         self._codec_combo.setVisible(is_audio)
+        self._bitrate_combo.setVisible(is_audio)
 
     def get_data(self):
         """Return job configuration."""
         return {
             "url": self._url_input.text().strip(),
             "format_mode": self._format_combo.currentData(),
+            "quality": self._quality_combo.currentData(),
+            "fps": self._fps_combo.currentData(),
             "audio_codec": self._codec_combo.currentData(),
+            "audio_bitrate": self._bitrate_combo.currentData(),
+            "custom_filename": self._filename_input.text().strip(),
+            "trim_start": None,  # Trim not implemented for batch
+            "trim_end": None,
             "download_subtitles": self._subtitle_check.isChecked(),
             "download_playlist": self._playlist_check.isChecked(),
         }
@@ -509,6 +622,12 @@ class BatchWindow(QMainWindow):
             audio_codec=job["audio_codec"],
             download_subtitles=job["download_subtitles"],
             download_playlist=job["download_playlist"],
+            custom_filename=job.get("custom_filename", ""),
+            trim_start=job.get("trim_start"),
+            trim_end=job.get("trim_end"),
+            quality=job.get("quality", "max"),
+            fps=job.get("fps", "max"),
+            audio_bitrate=job.get("audio_bitrate", "max"),
             state=self._state,
         )
         self._download_worker.progress_update.connect(self._on_progress_update)
@@ -541,6 +660,31 @@ class BatchWindow(QMainWindow):
     def _set_ui_downloading(self, active: bool):
         self._start_btn.setVisible(not active)
         self._cancel_btn.setVisible(active)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasText():
+            text = event.mimeData().text().strip()
+            if text.startswith(("http://", "https://", "www.")):
+                event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        text = event.mimeData().text().strip()
+        if text.startswith(("http://", "https://", "www.")):
+            if self._job_rows:
+                self._job_rows[-1]._url_input.setText(text)
+            else:
+                self._add_job()
+                self._job_rows[-1]._url_input.setText(text)
+            event.acceptProposedAction()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+            if self._start_btn.isVisible():
+                self._on_start_batch()
+            else:
+                super().keyPressEvent(event)
+        else:
+            super().keyPressEvent(event)
 
     def _append_log(self, message: str):
         if message:

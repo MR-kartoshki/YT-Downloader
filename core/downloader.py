@@ -8,13 +8,95 @@ from core import config
 from core.tool_manager import get_tools_dir
 
 
+class InfoFetchWorker(QThread):
+    duration_fetched = Signal(int)   # duration in seconds
+    formats_found = Signal(list)     # list of available heights (ints) in descending order
+    fps_found = Signal(list)         # list of available fps (ints) in descending order
+    bitrates_found = Signal(list)    # list of available audio bitrates (ints) in descending order
+    fetch_failed = Signal(str)
+
+    def __init__(self, url: str, state, parent=None):
+        super().__init__(parent)
+        self._url = url
+        self._state = state
+
+    def run(self):
+        tools_dir = str(get_tools_dir())
+        old_path = os.environ.get("PATH", "")
+        path_sep = ";" if os.name == "nt" else ":"
+        os.environ["PATH"] = f"{tools_dir}{path_sep}{old_path}"
+        try:
+            opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(self._url, download=False)
+            duration = int(info.get("duration") or 0) if info else 0
+            heights = self._extract_heights_from_formats(info)
+            fps_list = self._extract_fps_from_formats(info)
+            bitrates = self._extract_audio_bitrates_from_formats(info)
+            if duration > 0:
+                self.duration_fetched.emit(duration)
+            if heights:
+                self.formats_found.emit(heights)
+            if fps_list:
+                self.fps_found.emit(fps_list)
+            if bitrates:
+                self.bitrates_found.emit(bitrates)
+            if not duration:
+                self.fetch_failed.emit("No duration found")
+        except Exception as e:
+            self.fetch_failed.emit(str(e))
+        finally:
+            os.environ["PATH"] = old_path
+
+    @staticmethod
+    def _extract_heights_from_formats(info):
+        heights = set()
+        if not info or "formats" not in info:
+            return []
+        for fmt in info.get("formats", []):
+            if fmt.get("vcodec") == "none":
+                continue
+            h = fmt.get("height")
+            if h and h > 0:
+                heights.add(h)
+        return sorted(heights, reverse=True)
+
+    @staticmethod
+    def _extract_fps_from_formats(info):
+        fps_vals = set()
+        if not info or "formats" not in info:
+            return []
+        for fmt in info.get("formats", []):
+            if fmt.get("vcodec") == "none":
+                continue
+            fps = fmt.get("fps")
+            if fps and fps > 0:
+                fps_vals.add(int(fps))
+        return sorted(fps_vals, reverse=True)
+
+    @staticmethod
+    def _extract_audio_bitrates_from_formats(info):
+        bitrates = set()
+        if not info or "formats" not in info:
+            return []
+        for fmt in info.get("formats", []):
+            if fmt.get("acodec") == "none":
+                continue
+            abr = fmt.get("abr")
+            if abr and abr > 0:
+                bitrates.add(int(abr))
+        return sorted(bitrates, reverse=True)
+
+
 class DownloadWorker(QThread):
     progress_update = Signal(int, str)    # (percent 0-100, speed_string)
     status_update = Signal(str)           # log lines
     download_complete = Signal(bool, str) # (success, message)
 
     def __init__(self, url: str, output_dir: str, format_mode: str, audio_codec: str,
-                 download_subtitles: bool, download_playlist: bool, state, parent=None):
+                 download_subtitles: bool, download_playlist: bool, state,
+                 custom_filename: str = "", trim_start: int = None, trim_end: int = None,
+                 quality: str = "max", fps: str = "max", audio_bitrate: str = "max", parent=None):
         super().__init__(parent)
         self._url = url
         self._output_dir = Path(output_dir)
@@ -22,6 +104,12 @@ class DownloadWorker(QThread):
         self._audio_codec = audio_codec  # 'mp3', 'm4a', 'wav', 'flac', 'vorbis'
         self._download_subtitles = download_subtitles
         self._download_playlist = download_playlist
+        self._custom_filename = custom_filename
+        self._trim_start = trim_start  # seconds or None
+        self._trim_end = trim_end      # seconds or None
+        self._quality = quality         # 'max' or height like '720'
+        self._fps = fps                 # 'max' or fps like '60'
+        self._audio_bitrate = audio_bitrate  # 'max' or bitrate like '192'
         self._state = state
         self._stop = False
 
@@ -62,23 +150,41 @@ class DownloadWorker(QThread):
 
         if self._format_mode == "audio":
             fmt = "bestaudio/best"
-            # Map codec selection to yt-dlp codec and quality settings
+            # Map codec selection to yt-dlp codec
             codec_map = {
-                "mp3": ("mp3", "192"),
-                "m4a": ("aac", "192"),
-                "wav": ("wav", "192"),
-                "flac": ("flac", "192"),
-                "vorbis": ("vorbis", "192"),
+                "mp3": "mp3",
+                "m4a": "aac",
+                "wav": "wav",
+                "flac": "flac",
+                "vorbis": "vorbis",
             }
-            codec, quality = codec_map.get(self._audio_codec, ("mp3", "192"))
+            codec = codec_map.get(self._audio_codec, "mp3")
+            # Use selected bitrate or default to 192
+            bitrate = self._audio_bitrate if self._audio_bitrate != "max" else "192"
             postprocessors.append({
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": codec,
-                "preferredquality": quality,
+                "preferredquality": bitrate,
             })
         else:
             # Avoid OPUS audio (not compatible with MP4) — prefer m4a or AAC
-            fmt = "bestvideo[ext=mp4]+bestaudio[ext!=webm]/bestvideo+bestaudio/best"
+            # Build quality/fps constraints
+            main_constraints = "[ext=mp4]"
+            other_constraints = ""
+
+            if self._quality != "max":
+                h = int(self._quality)
+                main_constraints += f"[height<={h}]"
+                other_constraints += f"[height<={h}]"
+
+            if self._fps != "max":
+                f = int(self._fps)
+                main_constraints += f"[fps<={f}]"
+                other_constraints += f"[fps<={f}]"
+
+            fmt = (f"bestvideo{main_constraints}+bestaudio[ext!=webm]/"
+                   f"bestvideo{other_constraints}+bestaudio/best")
+
             postprocessors.append({
                 "key": "FFmpegVideoConvertor",
                 "preferedformat": "mp4",
@@ -91,9 +197,15 @@ class DownloadWorker(QThread):
                 "format": "srt",
             })
 
-        return {
+        if self._custom_filename:
+            # If the user supplied a plain name (no yt-dlp template markers), append the extension
+            tmpl = self._custom_filename if "%(" in self._custom_filename else f"{self._custom_filename}.%(ext)s"
+        else:
+            tmpl = "%(title)s [%(id)s].%(ext)s"
+
+        opts = {
             "format": fmt,
-            "outtmpl": str(self._output_dir / "%(title)s.%(ext)s"),
+            "outtmpl": str(self._output_dir / tmpl),
             "ffmpeg_location": ffmpeg_dir,
             "postprocessors": postprocessors,
             "progress_hooks": [self._progress_hook],
@@ -101,11 +213,21 @@ class DownloadWorker(QThread):
             "no_warnings": False,
             "logger": self._YtdlpLogger(self.status_update),
             "merge_output_format": "mp4",
-            "restrictfilenames": True,
             "writesubtitles": self._download_subtitles,
             "skip_unavailable_fragments": True,
             "noplaylist": not self._download_playlist,
         }
+
+        if self._trim_start is not None and self._trim_end is not None:
+            opts["download_ranges"] = yt_dlp.utils.download_range_func(
+                None, [(self._trim_start, self._trim_end)]
+            )
+            opts["force_keyframes_at_cuts"] = True
+
+        if os.name == "nt":
+            opts["windowsfilenames"] = True
+
+        return opts
 
     def _progress_hook(self, d: dict) -> None:
         if self._stop:
