@@ -1,11 +1,14 @@
-name: Publish Latest Version
+name: Publish Version Info
 
 on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
-  publish:
+  publish-version:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +32,7 @@ jobs:
             }));
             core.setOutput('assets', JSON.stringify(assets));
 
-      - name: Create version file
+      - name: Create version.json
         run: |
           cat > version.json << 'EOF'
           {
@@ -37,10 +40,12 @@ jobs:
             "assets": ${{ steps.assets.outputs.assets }}
           }
           EOF
+          cat version.json
 
-      - name: Upload to release
+      - name: Upload version.json to release
         uses: softprops/action-gh-release@v1
         with:
           files: version.json
+          tag_name: ${{ github.ref_name }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
