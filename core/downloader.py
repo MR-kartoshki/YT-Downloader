@@ -216,6 +216,8 @@ class DownloadWorker(QThread):
             "writesubtitles": self._download_subtitles,
             "skip_unavailable_fragments": True,
             "noplaylist": not self._download_playlist,
+            "extractor_args": {"soundcloud": {"formats": ["http_mp3", "http_aac", "http_opus"]}},
+            "cachedir": False,
         }
 
         if self._trim_start is not None and self._trim_end is not None:
