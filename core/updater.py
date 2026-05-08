@@ -23,17 +23,19 @@ _ASSET_NAMES = {
 
 IS_FROZEN = getattr(sys, "frozen", False)
 
-_CACHE_TTL = 86400  # 1 day in seconds
+_CACHE_TTL = 3600  # 1 hour in seconds
 _CACHE_FILE = get_app_base_dir() / ".update_cache.json"
 
 
 def _get_cache() -> dict | None:
-    """Load cached check result if fresh (< 24 hours old)."""
+    """Load cached check result if fresh and from the same app version."""
     if not _CACHE_FILE.exists():
         return None
     try:
         with open(_CACHE_FILE) as f:
             data = json.load(f)
+        if data.get("app_version") != __version__:
+            return None
         age = time.time() - data.get("timestamp", 0)
         if age < _CACHE_TTL:
             return data
@@ -43,8 +45,9 @@ def _get_cache() -> dict | None:
 
 
 def _set_cache(data: dict) -> None:
-    """Save check result with timestamp."""
+    """Save check result with timestamp and current app version."""
     data["timestamp"] = time.time()
+    data["app_version"] = __version__
     try:
         with open(_CACHE_FILE, "w") as f:
             json.dump(data, f)
