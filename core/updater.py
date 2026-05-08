@@ -191,26 +191,43 @@ def _extract_macos_binary(zip_path: str) -> str | None:
 def _apply_windows(tmp_path: str, current_exe: Path) -> None:
     import subprocess
     pid = os.getpid()
-    # Escape single quotes by doubling them (PowerShell single-quoted string rule)
-    src = str(Path(tmp_path)).replace("'", "''")
-    dst = str(current_exe).replace("'", "''")
-    ps_lines = [
-        f"$src = '{src}'",
-        f"$dst = '{dst}'",
-        # Wait for this process to actually exit before touching the file
-        f"try {{ Wait-Process -Id {pid} -Timeout 30 -ErrorAction Stop }} catch {{}}",
-        # Retry the move up to 10 times (1 s apart) in case the file is briefly locked
-        "for ($i = 0; $i -lt 10; $i++) {",
-        "    try { Move-Item -Force $src $dst -ErrorAction Stop; break }",
-        "    catch { Start-Sleep -Seconds 1 }",
-        "}",
-        "Start-Process $dst",
-        # Clean up this script file
-        "Remove-Item -Force -ErrorAction SilentlyContinue $MyInvocation.MyCommand.Path",
-    ]
+    log_path = str(current_exe.parent / "update_error.log")
+    ps_script = f"""
+$src = @"
+{tmp_path}
+"@.Trim()
+$dst = @"
+{current_exe}
+"@.Trim()
+$log = @"
+{log_path}
+"@.Trim()
+
+try {{ Wait-Process -Id {pid} -Timeout 30 -ErrorAction Stop }} catch {{}}
+
+$moved = $false
+for ($i = 0; $i -lt 15; $i++) {{
+    try {{
+        Move-Item -Force -LiteralPath $src -Destination $dst -ErrorAction Stop
+        $moved = $true
+        break
+    }} catch {{
+        Start-Sleep -Seconds 1
+    }}
+}}
+
+if ($moved) {{
+    Start-Process -FilePath $dst
+}} else {{
+    "Update failed: could not replace exe after 15 attempts." | Out-File -FilePath $log -Encoding utf8
+    [System.Windows.Forms.MessageBox]::Show("Update failed. See update_error.log next to the app.", "Update Error") | Out-Null
+}}
+
+Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $MyInvocation.MyCommand.Path
+"""
     fd, ps_path = tempfile.mkstemp(suffix=".ps1")
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write("\n".join(ps_lines))
+    with os.fdopen(fd, "w", encoding="utf-8-sig") as f:  # utf-8-sig writes BOM for PowerShell 5.1
+        f.write(ps_script)
     subprocess.Popen(
         [
             "powershell.exe",
