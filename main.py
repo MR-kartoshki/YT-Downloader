@@ -1,6 +1,9 @@
+import os
 import sys
+from pathlib import Path
 
 from core.dependency_checker import check_and_install_dependencies
+from core.version import __version__
 
 
 def main():
@@ -16,7 +19,7 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("YT Downloader")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion(__version__)
 
     state = AppState()
     window = MainWindow(state)

@@ -5,7 +5,6 @@ import yt_dlp
 from PySide6.QtCore import QThread, Signal
 
 from core import config
-from core.tool_manager import get_tools_dir
 
 
 class InfoFetchWorker(QThread):
@@ -21,10 +20,6 @@ class InfoFetchWorker(QThread):
         self._state = state
 
     def run(self):
-        tools_dir = str(get_tools_dir())
-        old_path = os.environ.get("PATH", "")
-        path_sep = ";" if os.name == "nt" else ":"
-        os.environ["PATH"] = f"{tools_dir}{path_sep}{old_path}"
         try:
             opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -45,8 +40,6 @@ class InfoFetchWorker(QThread):
                 self.fetch_failed.emit("No duration found")
         except Exception as e:
             self.fetch_failed.emit(str(e))
-        finally:
-            os.environ["PATH"] = old_path
 
     @staticmethod
     def _extract_heights_from_formats(info):
@@ -96,12 +89,14 @@ class DownloadWorker(QThread):
     def __init__(self, url: str, output_dir: str, format_mode: str, audio_codec: str,
                  download_subtitles: bool, download_playlist: bool, state,
                  custom_filename: str = "", trim_start: int = None, trim_end: int = None,
-                 quality: str = "max", fps: str = "max", audio_bitrate: str = "max", parent=None):
+                 quality: str = "max", fps: str = "max", audio_bitrate: str = "max",
+                 video_container: str = "mp4", parent=None):
         super().__init__(parent)
         self._url = url
         self._output_dir = Path(output_dir)
-        self._format_mode = format_mode  # 'video' or 'audio'
-        self._audio_codec = audio_codec  # 'mp3', 'm4a', 'wav', 'flac', 'vorbis'
+        self._format_mode = format_mode      # 'video' or 'audio'
+        self._video_container = video_container  # 'mp4', 'mkv', 'webm', 'avi', 'mov'
+        self._audio_codec = audio_codec      # 'mp3', 'm4a', 'wav', 'flac', 'vorbis'
         self._download_subtitles = download_subtitles
         self._download_playlist = download_playlist
         self._custom_filename = custom_filename
@@ -112,37 +107,28 @@ class DownloadWorker(QThread):
         self._audio_bitrate = audio_bitrate  # 'max' or bitrate like '192'
         self._state = state
         self._stop = False
+        self._last_logged_pct = -1
 
     def cancel(self):
         self._stop = True
 
     def run(self):
-        # Add tools dir to PATH so yt-dlp can find deno and ffmpeg
-        tools_dir = str(get_tools_dir())
-        old_path = os.environ.get("PATH", "")
-        path_sep = ";" if os.name == "nt" else ":"
-        os.environ["PATH"] = f"{tools_dir}{path_sep}{old_path}"
-
         # Fix 7: download_complete is always emitted, regardless of how run() exits.
         try:
-            try:
-                opts = self._build_ydl_opts()
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    ydl.download([self._url])
-                if self._stop:
-                    self.download_complete.emit(False, "Cancelled.")
-                else:
-                    self.download_complete.emit(True, "Download complete.")
-            except yt_dlp.utils.DownloadCancelled:
+            opts = self._build_ydl_opts()
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([self._url])
+            if self._stop:
                 self.download_complete.emit(False, "Cancelled.")
-            except Exception as e:
-                if self._stop:
-                    self.download_complete.emit(False, "Cancelled.")
-                else:
-                    self.download_complete.emit(False, str(e))
-        finally:
-            # Restore original PATH
-            os.environ["PATH"] = old_path
+            else:
+                self.download_complete.emit(True, "Download complete.")
+        except yt_dlp.utils.DownloadCancelled:
+            self.download_complete.emit(False, "Cancelled.")
+        except Exception as e:
+            if self._stop:
+                self.download_complete.emit(False, "Cancelled.")
+            else:
+                self.download_complete.emit(False, str(e))
 
     def _build_ydl_opts(self) -> dict:
         ffmpeg_dir = str(self._state.ffmpeg_path.parent) if self._state.ffmpeg_path else ""
@@ -150,7 +136,6 @@ class DownloadWorker(QThread):
 
         if self._format_mode == "audio":
             fmt = "bestaudio/best"
-            # Map codec selection to yt-dlp codec
             codec_map = {
                 "mp3": "mp3",
                 "m4a": "aac",
@@ -159,35 +144,43 @@ class DownloadWorker(QThread):
                 "vorbis": "vorbis",
             }
             codec = codec_map.get(self._audio_codec, "mp3")
-            # Use selected bitrate or default to 192
-            bitrate = self._audio_bitrate if self._audio_bitrate != "max" else "192"
-            postprocessors.append({
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": codec,
-                "preferredquality": bitrate,
-            })
+            pp: dict = {"key": "FFmpegExtractAudio", "preferredcodec": codec}
+            # Only lossy codecs use a bitrate; WAV/FLAC are lossless and ignore it
+            if codec not in ("wav", "flac"):
+                pp["preferredquality"] = (
+                    self._audio_bitrate if self._audio_bitrate != "max" else "192"
+                )
+            postprocessors.append(pp)
         else:
-            # Avoid OPUS audio (not compatible with MP4) — prefer m4a or AAC
-            # Build quality/fps constraints
-            main_constraints = "[ext=mp4]"
-            other_constraints = ""
+            container = self._video_container  # 'mp4', 'mkv', 'webm', 'avi', 'mov'
+            quality_constraint = ""
+            fps_constraint = ""
 
             if self._quality != "max":
                 h = int(self._quality)
-                main_constraints += f"[height<={h}]"
-                other_constraints += f"[height<={h}]"
+                quality_constraint = f"[height<={h}]"
 
             if self._fps != "max":
                 f = int(self._fps)
-                main_constraints += f"[fps<={f}]"
-                other_constraints += f"[fps<={f}]"
+                fps_constraint = f"[fps<={f}]"
 
-            fmt = (f"bestvideo{main_constraints}+bestaudio[ext!=webm]/"
-                   f"bestvideo{other_constraints}+bestaudio/best")
+            qf = quality_constraint + fps_constraint
+
+            if container == "mp4":
+                # Prefer native MP4 sources; avoid webm audio (incompatible with MP4)
+                fmt = (f"bestvideo[ext=mp4]{qf}+bestaudio[ext!=webm]/"
+                       f"bestvideo{qf}+bestaudio/best")
+            elif container == "webm":
+                # Prefer native WebM sources (VP8/VP9 + Vorbis/Opus)
+                fmt = (f"bestvideo[ext=webm]{qf}+bestaudio[ext=webm]/"
+                       f"bestvideo{qf}+bestaudio/best")
+            else:
+                # MKV, AVI, MOV — no codec restrictions, let ffmpeg handle remuxing
+                fmt = f"bestvideo{qf}+bestaudio/best"
 
             postprocessors.append({
                 "key": "FFmpegVideoConvertor",
-                "preferedformat": "mp4",
+                "preferedformat": container,
             })
 
         # Add subtitle download if requested
@@ -212,13 +205,15 @@ class DownloadWorker(QThread):
             "quiet": True,
             "no_warnings": False,
             "logger": self._YtdlpLogger(self.status_update),
-            "merge_output_format": "mp4",
             "writesubtitles": self._download_subtitles,
             "skip_unavailable_fragments": True,
             "noplaylist": not self._download_playlist,
             "extractor_args": {"soundcloud": {"formats": ["http_mp3", "http_aac", "http_opus"]}},
             "cachedir": False,
         }
+
+        if self._format_mode != "audio":
+            opts["merge_output_format"] = self._video_container
 
         if self._trim_start is not None and self._trim_end is not None:
             opts["download_ranges"] = yt_dlp.utils.download_range_func(
@@ -250,7 +245,9 @@ class DownloadWorker(QThread):
             speed = d.get("_speed_str", "").strip()
             eta = d.get("_eta_str", "").strip()
             self.progress_update.emit(pct, speed)
-            self.status_update.emit(f"Downloading {pct}%  {speed}  ETA {eta}")
+            if pct >= self._last_logged_pct + 2 or pct == 100:
+                self._last_logged_pct = pct
+                self.status_update.emit(f"Downloading {pct}%  {speed}  ETA {eta}")
 
         elif status == "finished":
             filename = Path(d.get("filename", "")).name

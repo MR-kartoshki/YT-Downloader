@@ -109,7 +109,7 @@ def main():
         "--windowed",
         "-y",                  # overwrite existing dist/ output without prompting
         "--name", "ytdownloader",
-        "--add-data", "image.ico:.",
+        "--add-data", "image.ico" + (";" if sys.platform == "win32" else ":") + ".",
         "--collect-all", "requests",
         "--collect-all", "certifi",
         "--collect-all", "yt_dlp",

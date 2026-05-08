@@ -75,12 +75,21 @@ class BatchJobRow(QFrame):
         """)
         paste_btn.clicked.connect(self._on_paste)
 
-        # Format selector
+        # Type selector
         self._format_combo = QComboBox()
-        self._format_combo.addItem("Video (MP4)", "video")
+        self._format_combo.addItem("Video", "video")
         self._format_combo.addItem("Audio", "audio")
-        self._format_combo.setFixedWidth(140)
+        self._format_combo.setFixedWidth(90)
         self._format_combo.currentIndexChanged.connect(self._on_format_changed)
+
+        # Video format selector (video only)
+        self._video_fmt_combo = QComboBox()
+        self._video_fmt_combo.addItem("MP4", "mp4")
+        self._video_fmt_combo.addItem("MKV", "mkv")
+        self._video_fmt_combo.addItem("WebM", "webm")
+        self._video_fmt_combo.addItem("AVI", "avi")
+        self._video_fmt_combo.addItem("MOV", "mov")
+        self._video_fmt_combo.setFixedWidth(80)
 
         # Quality selector (video only)
         self._quality_combo = QComboBox()
@@ -166,6 +175,7 @@ class BatchJobRow(QFrame):
         layout.addWidget(clear_btn)
         layout.addWidget(self._filename_input)
         layout.addWidget(self._format_combo)
+        layout.addWidget(self._video_fmt_combo)
         layout.addWidget(self._quality_combo)
         layout.addWidget(self._fps_combo)
         layout.addWidget(self._codec_combo)
@@ -207,10 +217,9 @@ class BatchJobRow(QFrame):
     def _on_format_changed(self):
         is_audio = self._format_combo.currentData() == "audio"
         is_video = not is_audio
-        # Video options
+        self._video_fmt_combo.setVisible(is_video)
         self._quality_combo.setVisible(is_video)
         self._fps_combo.setVisible(is_video)
-        # Audio options
         self._codec_combo.setVisible(is_audio)
         self._bitrate_combo.setVisible(is_audio)
 
@@ -219,6 +228,7 @@ class BatchJobRow(QFrame):
         return {
             "url": self._url_input.text().strip(),
             "format_mode": self._format_combo.currentData(),
+            "video_container": self._video_fmt_combo.currentData(),
             "quality": self._quality_combo.currentData(),
             "fps": self._fps_combo.currentData(),
             "audio_codec": self._codec_combo.currentData(),
@@ -589,14 +599,6 @@ class BatchWindow(QMainWindow):
 
     def _start_next_job(self):
         """Start the next job in the queue."""
-        # Clean up previous worker if it exists
-        if self._download_worker is not None:
-            self._download_worker.progress_update.disconnect()
-            self._download_worker.status_update.disconnect()
-            self._download_worker.download_complete.disconnect()
-            self._download_worker.finished.disconnect()
-            self._download_worker.deleteLater()
-
         if self._current_job_index >= len(self._jobs):
             # All jobs done
             self._download_worker = None
@@ -612,13 +614,16 @@ class BatchWindow(QMainWindow):
         total = len(self._jobs)
 
         self._job_counter.setText(f"{job_num}/{total}")
-        self._append_log(f"Processing: {job['url'][:60]}…")
+        url = job['url']
+        url_display = url if len(url) <= 60 else url[:60] + "…"
+        self._append_log(f"Processing: {url_display}")
         self._progress_bar.setValue(0)
 
         self._download_worker = DownloadWorker(
             url=job["url"],
             output_dir=self._output_dir,
             format_mode=job["format_mode"],
+            video_container=job.get("video_container", "mp4"),
             audio_codec=job["audio_codec"],
             download_subtitles=job["download_subtitles"],
             download_playlist=job["download_playlist"],
@@ -650,12 +655,16 @@ class BatchWindow(QMainWindow):
         self._progress_bar.setValue(100 if success else 0)
         self._append_log(message)
         self._current_job_index += 1
-        self._start_next_job()
+        # Do not call _start_next_job here — run() hasn't returned yet.
 
     @Slot()
     def _on_worker_finished(self):
-        # Worker is already cleaned up in _start_next_job
-        pass
+        # run() has returned; safe to destroy the worker and start the next job.
+        worker = self._download_worker
+        self._download_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self._start_next_job()
 
     def _set_ui_downloading(self, active: bool):
         self._start_btn.setVisible(not active)
