@@ -221,7 +221,7 @@ def _apply_windows(tmp_path: str, current_exe: Path) -> None:
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         close_fds=True,
     )
-    sys.exit(0)
+    os._exit(0)
 
 
 def _apply_unix(tmp_path: str, current_exe: Path) -> None:
